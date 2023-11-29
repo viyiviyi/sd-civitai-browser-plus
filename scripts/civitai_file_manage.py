@@ -18,6 +18,7 @@ import scripts.civitai_api as _api
 import scripts.civitai_file_manage as _file
 import scripts.civitai_download as _download
 from PIL import Image
+from io import BytesIO
 
 try:
     from send2trash import send2trash
@@ -158,7 +159,8 @@ def save_preview(file_name, install_path, preview_html):
     try:
         with urllib.request.urlopen(img_url) as url:
             preview_path = os.path.join(install_path, filename)
-            img = Image.open(url.read())
+            image_file = BytesIO(url.read())
+            img = Image.open(image_file)
             img.save(preview_path)
             # with open(preview_path, 'wb') as f:
             #     f.write(url.read())
@@ -197,7 +199,8 @@ def save_preview_multi(file_path, api_response, overwrite_toggle):
 
                             response = requests.get(url_with_width)
                             if response.status_code == 200:
-                                img = Image.open(response.content)
+                                image_file = BytesIO(response.content)
+                                img = Image.open(image_file)
                                 img.save(image_path)
                                 # with open(image_path, 'wb') as img_file:
                                 #     img_file.write(response.content)
@@ -238,7 +241,9 @@ def save_images(preview_html, model_filename, model_name, install_path):
         img_url = urllib.parse.quote(img_url,  safe=':/=')
         try:
             with urllib.request.urlopen(img_url) as url:
-                img = Image.open(url.read())
+                print(img_url)
+                image_file = BytesIO(url.read())
+                img = Image.open(image_file)
                 img.save(os.path.join(install_path, filename))
                 # with open(os.path.join(install_path, filename), 'wb') as f:
                 #     f.write(url.read())
