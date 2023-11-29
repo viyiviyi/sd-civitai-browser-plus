@@ -17,6 +17,7 @@ import scripts.civitai_global as gl
 import scripts.civitai_api as _api
 import scripts.civitai_file_manage as _file
 import scripts.civitai_download as _download
+from PIL import Image
 
 try:
     from send2trash import send2trash
@@ -157,10 +158,12 @@ def save_preview(file_name, install_path, preview_html):
     try:
         with urllib.request.urlopen(img_url) as url:
             preview_path = os.path.join(install_path, filename)
-            with open(preview_path, 'wb') as f:
-                f.write(url.read())
+            img = Image.open(url.read())
+            img.save(preview_path)
+            # with open(preview_path, 'wb') as f:
+            #     f.write(url.read())
                 
-                print(f"{gl.print} Preview image saved to: {preview_path}")
+            print(f"{gl.print} Preview image saved to: {preview_path}")
     except Exception as e:
         print(f'{gl.print} Error downloading preview image: {e}')
 
@@ -194,8 +197,10 @@ def save_preview_multi(file_path, api_response, overwrite_toggle):
 
                             response = requests.get(url_with_width)
                             if response.status_code == 200:
-                                with open(image_path, 'wb') as img_file:
-                                    img_file.write(response.content)
+                                img = Image.open(response.content)
+                                img.save(image_path)
+                                # with open(image_path, 'wb') as img_file:
+                                #     img_file.write(response.content)
                                 print(f"{gl.print} Preview saved at \"{image_path}\"")
                             else:
                                 print(f"{gl.print} Failed to preview. Status code: {response.status_code}")
@@ -233,11 +238,13 @@ def save_images(preview_html, model_filename, model_name, install_path):
         img_url = urllib.parse.quote(img_url,  safe=':/=')
         try:
             with urllib.request.urlopen(img_url) as url:
-                with open(os.path.join(install_path, filename), 'wb') as f:
-                    f.write(url.read())
-                    if i == 0 and not os.path.exists(os.path.join(install_path, filenamethumb)):
-                        shutil.copy2(os.path.join(install_path, filename),os.path.join(install_path, filenamethumb))
-                    print(f"{gl.print} Downloaded images.")
+                img = Image.open(url.read())
+                img.save(os.path.join(install_path, filename))
+                # with open(os.path.join(install_path, filename), 'wb') as f:
+                #     f.write(url.read())
+                if i == 0 and not os.path.exists(os.path.join(install_path, filenamethumb)):
+                    shutil.copy2(os.path.join(install_path, filename),os.path.join(install_path, filenamethumb))
+                print(f"{gl.print} Downloaded images.")
                     
         except urllib.error.URLError as e:
             print(f'Error: {e.reason}')
