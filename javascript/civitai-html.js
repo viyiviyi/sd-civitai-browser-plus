@@ -1,7 +1,14 @@
 "use strict";
 
 // Selects a model by pressing on card
-function select_model(model_name, bool = false, content_type = null) {
+function select_model(model_name, event, bool = false, content_type = null) {
+    if (event) {
+        var className = event.target.className;
+        if (className.includes('custom-checkbox') || className.includes('model-checkbox')) {
+            return;
+        }
+    }
+    
     const output = bool ? gradioApp().querySelector('#model_sent textarea') : gradioApp().querySelector('#model_select textarea');
 
     if (output && model_name) {
@@ -88,7 +95,7 @@ function updateCard(modelNameWithSuffix) {
         const cards = parentDiv.querySelectorAll('.civmodelcard');
         cards.forEach((card) => {
             const onclickAttr = card.getAttribute('onclick');
-            if (onclickAttr && onclickAttr.includes(`select_model('${modelName}')`)) {
+            if (onclickAttr && onclickAttr.includes(`select_model('${modelName}', event)`)) {
                 card.className = `civmodelcard  ${additionalClassName}`;
             }
         });
@@ -122,6 +129,7 @@ document.addEventListener('keydown', function(e) {
     }
 });
 
+// Function for the back to top button
 function BackToTop() {
     const c = Math.max(document.body.scrollTop, document.documentElement.scrollTop);
     if (c > 0) {
@@ -143,6 +151,7 @@ function adjustFilterBoxAndButtons() {
     const isMediumScreen = window.innerWidth < 1250 && window.innerWidth > 915;
     const isNarrowScreen = window.innerWidth < 800;
     const modelBlocks = document.querySelectorAll("#civitai_preview_html .model-block");
+    const civitInfo = document.querySelector(".civitai-version-info");
     
     if (modelBlocks) {
         modelBlocks.forEach(modelBlock => {
@@ -154,7 +163,14 @@ function adjustFilterBoxAndButtons() {
                 modelBlock.style.justifyContent = "flex-start";
             }
         });
+    } if (civitInfo) {
+        if (window.innerWidth < 900) {
+            civitInfo.style.flexWrap = "wrap";
+        } else {
+            civitInfo.style.flexWrap = "nowrap";
+        }
     }
+    
 
     childDiv.style.marginLeft = isLargeScreen ? "0px" : isMediumScreen ? `${1250 - window.innerWidth}px` : "0px";
     element.style.justifyContent = isLargeScreen || isMediumScreen ? "center" : "flex-start";
@@ -269,14 +285,6 @@ function createTooltipOnHover() {
     }
 }
 
-// Changes the Tab title
-function changeTabTitle() {
-    const tabElement = document.getElementById('rc-tabs-0-tab-tab_civitai_interface');
-    if (tabElement) {
-        tabElement.textContent = 'CivitAI Browser+';
-    }
-  }
-
 // Function that closes filter dropdown if clicked outside the dropdown
 function setupClickOutsideListener() {
     var filterBox = document.getElementById("filterBoxL") || document.getElementById("filterBox");
@@ -376,7 +384,7 @@ function createCardButtons(event) {
     const validButtonNames = ['Textual Inversion', 'Hypernetworks', 'Checkpoints', 'Lora'];
     const validParentIds = ['txt2img_textual_inversion_cards_html', 'txt2img_hypernetworks_cards_html', 'txt2img_checkpoints_cards_html', 'txt2img_lora_cards_html'];
 
-    const hasMatchingButtonName = validButtonNames.some(buttonName =>
+    const hasMatchingButtonName = clickedElement && clickedElement.innerText && validButtonNames.some(buttonName =>
         clickedElement.innerText.trim() === buttonName
     );
 
@@ -400,6 +408,9 @@ function createCardButtons(event) {
                 cardDivs.forEach(cardDiv => {
                     const buttonRow = cardDiv.querySelector('.button-row');
                     const actions = cardDiv.querySelector('.actions');
+                    if (!actions) {
+                        return;
+                    }
                     const nameSpan = actions.querySelector('.name');
                     let modelName  = nameSpan.textContent.trim();
                     let currentElement = cardDiv.parentElement;
@@ -458,7 +469,7 @@ function createCardButtons(event) {
 }
 
 document.addEventListener('click', createCardButtons);
-
+// Sends the selected model list to a python function
 function sendModelToBrowser(modelName, content_type) {
     const tabNav = document.querySelector('.tab-nav');
     const buttons = tabNav.querySelectorAll('button');
@@ -472,7 +483,29 @@ function sendModelToBrowser(modelName, content_type) {
             }
         }
     }
-    select_model(modelName, true, content_type);
+    select_model(modelName, null, true, content_type);
+}
+
+// Creates a list of the selected models
+var selectedModels = [];
+function multi_model_select(modelName, isChecked) {
+    if (arguments.length === 0) {
+        selectedModels = [];
+        return;
+    }
+    if (isChecked) {
+        if (!selectedModels.includes(modelName)) {
+            selectedModels.push(modelName);
+        }
+    } else {
+        var index = selectedModels.indexOf(modelName);
+        if (index > -1) {
+            selectedModels.splice(index, 1);
+        }
+    }
+    const output = gradioApp().querySelector('#selected_list textarea');
+    output.value = JSON.stringify(selectedModels);
+    updateInput(output);
 }
 
 // Clicks the first item in the browser cards list
@@ -484,6 +517,133 @@ function clickFirstFigureInColumn() {
             firstFigure.click();
         }
     }
+}
+
+// Metadata button click detector
+document.addEventListener('click', function(event) {
+    var target = event.target;
+    if (target.classList.contains('edit-button') && target.classList.contains('card-button')) {
+        var parentDiv = target.parentElement;
+        var actionsDiv = parentDiv.nextElementSibling;
+        if (actionsDiv && actionsDiv.classList.contains('actions')) {
+            var nameSpan = actionsDiv.querySelector('.name');
+            if (nameSpan) {
+                var nameValue = nameSpan.textContent;
+                onEditButtonCardClick(nameValue);
+            }
+        }
+    }
+}, true);
+
+// CivitAI Link Button Creation
+function onEditButtonCardClick(nameValue) {
+    var checkInterval = setInterval(function() {
+        var globalPopupInner = document.querySelector('.global-popup-inner');
+        var titleElement = globalPopupInner.querySelector('.extra-network-name');
+        if (titleElement.textContent.trim() === nameValue.trim()) {
+            var descriptionSpan = Array.from(globalPopupInner.querySelectorAll('span')).find(span => span.textContent.trim() === "Description");
+            if (descriptionSpan) {
+                var descriptionTextarea = descriptionSpan.nextElementSibling;
+                if (descriptionTextarea.value.startsWith('Model URL:')) {
+                    var matches = descriptionTextarea.value.match(/"([^"]+)"/);
+                    if (matches && matches[1]) {
+                        var modelUrl = matches[1];
+
+                        var grandParentDiv = descriptionTextarea.parentElement.parentElement.parentElement.parentElement;
+                        var imageDiv = grandParentDiv.nextElementSibling
+                        var openInCivitaiDiv = document.querySelector('.open-in-civitai');
+                        if (!openInCivitaiDiv) {
+                            openInCivitaiDiv = document.createElement('div');
+                            openInCivitaiDiv.classList.add('open-in-civitai');
+                            imageDiv.appendChild(openInCivitaiDiv);
+                        }
+                        openInCivitaiDiv.innerHTML = '<a href="' + modelUrl + '" target="_blank" onclick="window.open(this.href, \'_blank\'); return false;">Open on CivitAI</a>';
+                    }
+                    else {
+                        var openInCivitaiDiv = document.querySelector('.open-in-civitai');
+                        if (openInCivitaiDiv) {
+                            openInCivitaiDiv.remove();
+                        }
+                    }
+                } else {
+                    var openInCivitaiDiv = document.querySelector('.open-in-civitai');
+                    if (openInCivitaiDiv) {
+                        openInCivitaiDiv.remove();
+                    }
+                }
+            }
+            clearInterval(checkInterval);
+        }
+    }, 100);
+}
+
+// Selects all models
+function selectAllModels() {
+    const checkboxes = Array.from(document.querySelectorAll('.model-checkbox'));
+    const allChecked = checkboxes.every(checkbox => checkbox.checked);
+    const allUnchecked = checkboxes.every(checkbox => !checkbox.checked);
+
+    if (allChecked || allUnchecked) {
+        checkboxes.forEach(clickCheckbox);
+    } else {
+        checkboxes.filter(checkbox => !checkbox.checked).forEach(clickCheckbox);
+    }
+
+    function clickCheckbox(checkbox) {
+        const clickEvent = new MouseEvent('click', {
+            view: window,
+            bubbles: true,
+            cancelable: true
+        });
+        checkbox.dispatchEvent(clickEvent);
+    }
+}
+
+// Deselects all models
+function deselectAllModels() {
+    setTimeout(() => {
+        const checkboxes = Array.from(document.querySelectorAll('.model-checkbox'));
+        checkboxes.filter(checkbox => checkbox.checked).forEach(uncheckCheckbox);
+        function uncheckCheckbox(checkbox) {
+            const clickEvent = new MouseEvent('click', {
+                view: window,
+                bubbles: true,
+                cancelable: true
+            });
+            checkbox.dispatchEvent(clickEvent);
+        }
+    }, 1000);
+}
+
+// Sends Image URL to Python to pull generation info
+function sendImgUrl(image_url) {
+    const randomNumber = Math.floor(Math.random() * 1000);
+    const paddedNumber = String(randomNumber).padStart(3, '0');
+    const input = gradioApp().querySelector('#civitai_text2img_input textarea');
+    input.value = paddedNumber + "." + image_url;
+    updateInput(input);
+}
+
+// Sends txt2img info to txt2img tab
+function genInfo_to_txt2img(genInfo) {
+    let insert = gradioApp().querySelector('#txt2img_prompt textarea');
+    let pasteButton = gradioApp().querySelector('#paste');
+    if (genInfo) {
+        var cleanGenInfo = genInfo.slice(5);
+        insert.value = cleanGenInfo;
+        insert.dispatchEvent(new Event('input', { bubbles: true }));
+
+        pasteButton.dispatchEvent(new Event('click', { bubbles: true }));
+    }
+}
+
+// Hide installed models
+function hideInstalled(toggleValue) {
+    const modelList =  document.querySelectorAll('.column.civmodellist > .civmodelcardinstalled')
+    console.log(modelList)
+    modelList.forEach(item => {
+        item.style.display = toggleValue ? 'none' : 'block';
+    });
 }
 
 // Runs all functions when the page is fully loaded
@@ -504,13 +664,12 @@ function onPageLoad() {
     var upscalers = upscalerDiv.querySelectorAll("[id$='upscale_subfolder']");
 
     createAccordion(upscalerDiv, upscalers, "Upscalers");
-
+    
     observer.observe(civitaiDiv);
     clearInterval(intervalID);
     updateSVGIcons();
     adjustFilterBoxAndButtons();
     createTooltipOnHover();
-    changeTabTitle();
     setupClickOutsideListener();
     createLink(infoElement);
     updateBackToTopVisibility([{isIntersecting: false}]);
