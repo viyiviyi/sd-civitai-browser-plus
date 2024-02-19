@@ -7,12 +7,15 @@ import os
 import io
 import re
 import time
-import shutil
+import errno
 import requests
 import hashlib
 from pathlib import Path
 from urllib.parse import urlparse
+
+from sympy import preview
 from modules.shared import cmd_opts, opts
+from scripts.civitai_global import print
 import scripts.civitai_global as gl
 import scripts.civitai_api as _api
 import scripts.civitai_file_manage as _file
@@ -22,15 +25,16 @@ from io import BytesIO
 
 try:
     from send2trash import send2trash
-except:
-    print(f"{gl.print} Python module 'send2trash' has not been imported correctly, please try to restart or install it manually.")
+except ImportError:
+    print("Python module 'send2trash' has not been imported correctly, please try to restart or install it manually.")
 try:
     from bs4 import BeautifulSoup
-except:
-    print(f"{gl.print} Python module 'BeautifulSoup' has not been imported correctly, please try to restart or install it manually.")
+except ImportError:
+    print("Python module 'BeautifulSoup' has not been imported correctly, please try to restart or install it manually.")
 
 gl.init()
 
+offlineHTML = '<div style="font-size: 24px; text-align: center; margin: 50px !important;">The Civit-API has timed out, please try again.<br>The servers might be too busy or the selected model could not be found.</div>'
 css_path = Path(__file__).resolve().parents[1] / "style_html.css"
 no_update = False
 from_ver = False
@@ -43,39 +47,52 @@ except AttributeError:
 except:
     queue = True
 
-def delete_model(delete_finish=None, model_filename=None, model_name=None, list_versions=None, sha256=None, selected_list=None):
+def delete_model(delete_finish=None, model_filename=None, model_string=None, list_versions=None, sha256=None, selected_list=None, model_ver=None, model_json=None):
     deleted = False
-    gr_components = _api.update_model_versions(model_name)
-    model_name_search = model_name
+    model_id = None
     
-    (model_name, ver_value, ver_choices) = _file.card_update(gr_components, model_name, list_versions, False)
-    if model_name_search is not None:
-        selected_content_type = None
-        for item in gl.json_data['items']:
-            if item['name'] == model_name_search:
-                selected_content_type = item['type']
-                desc = item['description']
-                break
-        
-        if selected_content_type is None:
-            print(f"{gl.print} Model name not found in json_data. (delete_model)")
-            return
+    if model_string:
+        _, model_id = _api.extract_model_info(model_string)
+    
+    if not model_ver:
+        model_versions = _api.update_model_versions(model_id)
+    else: model_versions = model_ver
+    
+    (model_name, ver_value, ver_choices) = _file.card_update(model_versions, model_string, list_versions, False)
+    if not model_json:
+        if model_id != None:
+            selected_content_type = None
+            for item in gl.json_data['items']:
+                if int(item['id']) == int(model_id):
+                    selected_content_type = item['type']
+                    desc = item['description']
+                    break
+            
+            if selected_content_type is None:
+                print("Model ID not found in json_data. (delete_model)")
+                return
+    else:
+        for item in model_json["items"]:
+            selected_content_type = item['type']
+            desc = item['description']
     
     model_folder = os.path.join(_api.contenttype_folder(selected_content_type, desc))
-
+    
     # Delete based on provided SHA-256 hash
     if sha256:
         sha256_upper = sha256.upper()
-        for root, _, files in os.walk(model_folder):
+        for root, _, files in os.walk(model_folder, followlinks=True):
             for file in files:
                 if file.endswith('.json'):
                     file_path = os.path.join(root, file)
                     try:
-                        with open(file_path, 'r') as json_file:
+                        with open(file_path, 'r', encoding="utf-8") as json_file:
                             data = json.load(json_file)
-                            file_sha256 = data.get('sha256', '').upper()
+                            file_sha256 = data.get('sha256', '')
+                            if file_sha256:
+                                file_sha256 = file_sha256.upper()
                     except Exception as e:
-                        print(f"{gl.print} Failed to open: {file_path}: {e}")
+                        print(f"Failed to open: {file_path}: {e}")
                         file_sha256 = "0"
                         
                     if file_sha256 == sha256_upper:
@@ -85,38 +102,39 @@ def delete_model(delete_finish=None, model_filename=None, model_name=None, list_
                             if os.path.isfile(unpacked_file_path):
                                 try:
                                     send2trash(unpacked_file_path)
-                                    print(f"{gl.print} File moved to trash based on unpackList: {unpacked_file_path}")
+                                    print(f"File moved to trash based on unpackList: {unpacked_file_path}")
                                 except:
                                     os.remove(unpacked_file_path)
-                                    print(f"{gl.print} File deleted based on unpackList: {unpacked_file_path}")
+                                    print(f"File deleted based on unpackList: {unpacked_file_path}")
                         
                         base_name, _ = os.path.splitext(file)
                         if os.path.isfile(file_path):
                             try:
                                 send2trash(file_path)
-                                print(f"{gl.print} Model moved to trash based on SHA-256: {file_path}")
+                                print(f"Model moved to trash based on SHA-256: {file_path}")
                             except:
                                 os.remove(file_path)
-                                print(f"{gl.print} Model deleted based on SHA-256: {file_path}")
+                                print(f"Model deleted based on SHA-256: {file_path}")
                             delete_associated_files(root, base_name)
                             deleted = True
 
     # Fallback to delete based on filename if not deleted based on SHA-256
-    file_to_delete = os.path.splitext(model_filename)[0]
+    filename_to_delete = os.path.splitext(model_filename)[0]
+    aria2_file = model_filename + ".aria2"
     if not deleted:
-        for root, dirs, files in os.walk(model_folder):
+        for root, dirs, files in os.walk(model_folder, followlinks=True):
             for file in files:
-                current_file = os.path.splitext(file)[0]
-                if file_to_delete == current_file:
+                current_file_name = os.path.splitext(file)[0]
+                if filename_to_delete == current_file_name or aria2_file == file:
                     path_file = os.path.join(root, file)
                     if os.path.isfile(path_file):
                         try:
                             send2trash(path_file)
-                            print(f"{gl.print} Model moved to trash based on filename: {path_file}")
+                            print(f"Model moved to trash based on filename: {path_file}")
                         except:
                             os.remove(path_file)
-                            print(f"{gl.print} Model deleted based on filename: {path_file}")
-                        delete_associated_files(root, current_file)
+                            print(f"Model deleted based on filename: {path_file}")
+                        delete_associated_files(root, current_file_name)
 
     number = _download.random_number(delete_finish)
 
@@ -135,14 +153,14 @@ def delete_model(delete_finish=None, model_filename=None, model_name=None, list_
 def delete_associated_files(directory, base_name):
     for file in os.listdir(directory):
         current_base_name, ext = os.path.splitext(file)
-        if current_base_name == base_name or current_base_name == f"{base_name}.preview":
+        if current_base_name == base_name or current_base_name == f"{base_name}.preview" or current_base_name == f"{base_name}.api_info":
             path_to_delete = os.path.join(directory, file)
             try:
                 send2trash(path_to_delete)
-                print(f"{gl.print} Associated file moved to trash: {path_to_delete}")
+                print(f"Associated file moved to trash: {path_to_delete}")
             except:
                 os.remove(path_to_delete)
-                print(f"{gl.print} Associated file deleted: {path_to_delete}")
+                print(f"Associated file deleted: {path_to_delete}")
 
 def save_preview(file_path, api_response, overwrite_toggle=False, sha256=None):
     json_file = os.path.splitext(file_path)[0] + ".json"
@@ -158,19 +176,19 @@ def save_preview(file_path, api_response, overwrite_toggle=False, sha256=None):
     if not sha256:
         if os.path.exists(json_file):
             try:
-                with open(json_file, 'r') as f:
+                with open(json_file, 'r', encoding="utf-8") as f:
                     data = json.load(f)
-                    if 'sha256' in data:
+                    if 'sha256' in data and data['sha256']:
                         sha256 = data['sha256'].upper()
             except Exception as e:
-                print(f"{gl.print} Failed to open {json_file}: {e}")
+                print(f"Failed to open {json_file}: {e}")
     else:
         sha256 = sha256.upper()
 
     for item in api_response["items"]:
         for version in item["modelVersions"]:
             for file_entry in version["files"]:
-                if file_entry["hashes"]["SHA256"] == sha256:
+                if file_entry["hashes"].get("SHA256") == sha256:
                     for image in version["images"]:
                         if image["type"] == "image":
                             url_with_width = re.sub(r'/width=\d+', f'/width={image["width"]}', image["url"])
@@ -180,32 +198,37 @@ def save_preview(file_path, api_response, overwrite_toggle=False, sha256=None):
                                 image_file = BytesIO(response.content)
                                 img = Image.open(image_file)
                                 img.save(image_path)
-                                # with open(image_path, 'wb') as img_file:
-                                #     img_file.write(response.content)
-                                print(f"{gl.print} Preview saved at \"{image_path}\"")
+                                print(f"Preview saved at \"{image_path}\"")
                             else:
-                                print(f"{gl.print} Failed to preview. Status code: {response.status_code}")
+                                print(f"Failed to save preview. Status code: {response.status_code}")
 
                             return
-                    print(f"{gl.print} No preview images found for \"{name}\"")
+                    print(f"No preview images found for \"{name}\"")
                     return
 
-def save_images(preview_html, model_filename, model_name, install_path, sub_folder):
+def get_image_path(install_path, api_response, sub_folder):
     image_location = getattr(opts, "image_location", r"")
     sub_image_location = getattr(opts, "sub_image_location", True)
+    image_path = install_path
+    if api_response:
+        json_info = api_response['items'][0]
+    else:
+        json_info = gl.json_info
     if image_location:
         if sub_image_location:
-            desc = gl.json_info['description']
-            content_type = gl.json_info['type']
-            install_path = os.path.join(_api.contenttype_folder(content_type, desc, custom_folder=image_location))
-            if sub_folder and sub_folder != "None":
-                install_path = os.path.join(install_path, sub_folder.lstrip("/").lstrip("\\"))
-        else:
-            install_path = Path(image_location)
+            desc = json_info['description']
+            content_type = json_info['type']
+            image_path = os.path.join(_api.contenttype_folder(content_type, desc, custom_folder=image_location))
             
-        
-    if not os.path.exists(install_path):
-        os.makedirs(install_path)
+            if sub_folder and sub_folder != "None" and sub_folder != "Only available if the selected files are of the same model type":
+                image_path = os.path.join(image_path, sub_folder.lstrip("/").lstrip("\\"))
+        else:
+            image_path = Path(image_location)
+    make_dir(image_path)
+    return image_path
+
+def save_images(preview_html, model_filename, install_path, sub_folder, api_response=None):
+    image_path = get_image_path(install_path, api_response, sub_folder)
     img_urls = re.findall(r'data-sampleimg="true" src=[\'"]?([^\'" >]+)', preview_html)
     
     name = os.path.splitext(model_filename)[0]
@@ -214,57 +237,24 @@ def save_images(preview_html, model_filename, model_name, install_path, sub_fold
     opener.addheaders = [('User-agent', 'Mozilla/5.0')]
     urllib.request.install_opener(opener)
 
-    HTML = preview_html
-    image_count = 0
     for i, img_url in enumerate(img_urls):
-        image_count += 1
         filename = f'{name}_{i}.png'
-        filenamethumb = f'{name}.png'
-        if model_name is not None:
-            for item in gl.json_data['items']:
-                if item['name'] == model_name:
-                    if item['type'] == "TextualInversion":
-                        filename = f'{name}_{i}.preview.png'
-                        filenamethumb = f'{name}.preview.png'
-        HTML = HTML.replace(img_url,f'{filename}')
-        img_url = urllib.parse.quote(img_url,  safe=':/=')
+        img_url = urllib.parse.quote(img_url, safe=':/=')
         try:
             with urllib.request.urlopen(img_url) as url:
-                
                 image_file = BytesIO(url.read())
                 img = Image.open(image_file)
                 img.save(os.path.join(install_path, filename))
-                
-                # with open(os.path.join(install_path, filename), 'wb') as f:
-                #     f.write(url.read())
-                
-                if i == 0 and not os.path.exists(os.path.join(install_path, filenamethumb)):
-                    shutil.copy2(os.path.join(install_path, filename),os.path.join(install_path, filenamethumb))
-                print(f"{gl.print} Downloaded image {image_count}")
+                print(f"Downloaded {filename}")
                     
         except urllib.error.URLError as e:
             print(f'Error: {e.reason}')
-    match = re.search(r'(\s*)<div class="model-block">', preview_html)
-    if match:
-        indentation = match.group(1)
-    else:
-        indentation = ''
-    css_link = f'<link rel="stylesheet" type="text/css" href="{css_path}">'
-    head_section = f'{indentation}<head>{indentation}    {css_link}{indentation}</head>'
-    
-    HTML = head_section + HTML
-    path_to_new_file = os.path.join(install_path, f'{name}.html')
-    with open(path_to_new_file, 'wb') as f:
-        f.write(HTML.encode('utf8'))
-    path_to_new_file = os.path.join(install_path, f'{name}.civitai.info')
-    with open(path_to_new_file, mode="w", encoding="utf-8") as f:
-        json.dump(gl.json_info, f, indent=4, ensure_ascii=False)
 
 def card_update(gr_components, model_name, list_versions, is_install):
     if gr_components:
         version_choices = gr_components['choices']
     else:
-        print(f"{gl.print} Couldn't retrieve version, defaulting to installed")
+        print("Couldn't retrieve version, defaulting to installed")
         model_name += ".New"
         return model_name, None, None
     
@@ -295,7 +285,7 @@ def list_files(folders):
     
     for folder in folders:
         if folder and os.path.exists(folder):
-            for root, _, files in os.walk(folder):
+            for root, _, files in os.walk(folder, followlinks=True):
                 for file in files:
                     _, file_extension = os.path.splitext(file)
                     if file_extension.lower() in extensions:
@@ -309,14 +299,14 @@ def gen_sha256(file_path):
     
     if os.path.exists(json_file):
         try:
-            with open(json_file, 'r') as f:
+            with open(json_file, 'r', encoding="utf-8") as f:
                 data = json.load(f)
         
-            if 'sha256' in data:
+            if 'sha256' in data and data['sha256']:
                 hash_value = data['sha256']
                 return hash_value
         except Exception as e:
-            print(f"{gl.print} Failed to open {json_file}: {e}")
+            print(f"Failed to open {json_file}: {e}")
         
     def read_chunks(file, size=io.DEFAULT_BUFFER_SIZE):
         while True:
@@ -337,68 +327,128 @@ def gen_sha256(file_path):
     
     if os.path.exists(json_file):
         try:
-            with open(json_file, 'r') as f:
+            with open(json_file, 'r', encoding="utf-8") as f:
                 data = json.load(f)
     
-            if 'sha256' not in data:
+            if 'sha256' in data and data['sha256']:
                 data['sha256'] = hash_value
                 
-            with open(json_file, 'w') as f:
+            with open(json_file, 'w', encoding="utf-8") as f:
                 json.dump(data, f, indent=4)
         except Exception as e:
-            print(f"{gl.print} Failed to open {json_file}: {e}")
+            print(f"Failed to open {json_file}: {e}")
     else:
         data = {'sha256': hash_value}
-        with open(json_file, 'w') as f:
+        with open(json_file, 'w', encoding="utf-8") as f:
             json.dump(data, f, indent=4)
     
     return hash_value
 
-def model_from_sent(model_name, content_type, click_first_item):
-    model_name = re.sub(r'\.\d{3}$', '', model_name)
-    content_type = re.sub(r'\.\d{3}$', '', content_type)
-    content_mapping = {
-        "txt2img_textual_inversion_cards_html": ['TextualInversion'],
-        "txt2img_hypernetworks_cards_html": ['Hypernetwork'],
-        "txt2img_checkpoints_cards_html": ['Checkpoint'],
-        "txt2img_lora_cards_html": ['LORA', 'LoCon']
-    }
-    content_type = content_mapping.get(content_type, content_type)
+def model_from_sent(model_name, content_type, tile_count, path_input):
+    modelID_failed = False
+    output_html = None
+    model_file = None
+    use_local_html = getattr(opts, "use_local_html", False)
+    local_path_in_html = getattr(opts, "local_path_in_html", False)
     
-    for content_type_item in content_type:
-        folder = _api.contenttype_folder(content_type_item)
-        for folder_path, _, files in os.walk(folder):
-            for file in files:
-                if file.startswith(model_name) and not file.endswith(".json"):
-                    model_file = os.path.join(folder_path, file)
+    div = '<div style="color: white; font-family: var(--font); font-size: 24px; text-align: center; margin: 50px !important;">'
+    not_found = div + "Model ID not found.<br>Maybe the model doesn\'t exist on CivitAI?</div>"
+    path_not_found = div + "Model ID not found.<br>Could not locate the model path.</div>"
+    offline = div + "CivitAI failed to respond.<br>The servers are likely offline."
     
-    
-    modelID = get_models(model_file)
-    gl.json_data = _api.api_to_data(content_type, "Newest", "AllTime", "Model name", None, None, None, f"civitai.com/models/{modelID}")
-    if gl.json_data == "timeout":
-        HTML = '<div style="font-size: 24px; text-align: center; margin: 50px !important;">The Civit-API has timed out, please try again.<br>The servers might be too busy or the selected model could not be found.</div>'
-        number = click_first_item
-    if gl.json_data != None and gl.json_data != "timeout":
-        model_dict = {}
-        for item in gl.json_data['items']:
-            model_dict[item['name']] = item['name']
-        HTML = _api.model_list_html(gl.json_data, model_dict)
-        (hasPrev, hasNext, current_page, total_pages) = _api.pagecontrol(gl.json_data)
-        page_string = f"Page: {current_page}/{total_pages}"
-        number = _download.random_number(click_first_item)
-    else:
-        hasPrev = False
-        hasNext = False
-        page_string = "Page: 0/0"
-        current_page = 0
-        total_pages = 0
+    if local_path_in_html:
+        use_local_html = False
         
+    if path_input == "Not Found":
+        model_name = re.sub(r'\.\d{3}$', '', model_name)
+        content_type = re.sub(r'\.\d{3}$', '', content_type)
+        content_mapping = {
+            "txt2img_textual_inversion_cards_html": ['TextualInversion'],
+            "txt2img_hypernetworks_cards_html": ['Hypernetwork'],
+            "txt2img_checkpoints_cards_html": ['Checkpoint'],
+            "txt2img_lora_cards_html": ['LORA', 'LoCon']
+        }
+        content_type = content_mapping.get(content_type, content_type)
+        
+        extensions = ['.pt', '.ckpt', '.pth', '.safetensors', '.th', '.zip', '.vae']
+    
+        for content_type_item in content_type:
+            folder = _api.contenttype_folder(content_type_item)
+            for folder_path, _, files in os.walk(folder, followlinks=True):
+                for file in files:
+                    if file.startswith(model_name) and file.endswith(tuple(extensions)):
+                        model_file = os.path.join(folder_path, file)
+        if not model_file:
+            output_html = path_not_found
+            print(f'Error: Could not find model path for model: "{model_name}"')
+            print(f'Content type: "{content_type}"')
+            print(f'Main folder path: "{folder}"')
+            use_local_html = False
+    else:
+        model_file = path_input
+        
+    if use_local_html:
+        html_file = os.path.splitext(model_file)[0] + ".html"
+        if os.path.exists(html_file):
+            with open(html_file, 'r', encoding='utf-8') as html:
+                output_html = html.read()
+                index = output_html.find("</head>")
+                if index != -1:
+                    output_html = output_html[index + len("</head>"):]
+    
+    if not output_html:
+        modelID = get_models(model_file, True)
+        if not modelID or modelID == "Model not found":
+            output_html = not_found
+            modelID_failed = True
+        if modelID == "offline":
+            output_html = offline
+            modelID_failed = True
+        if not modelID_failed: 
+            json_data = _api.api_to_data(content_type, "Newest", "AllTime", "Model name", None, None, None, tile_count, f"civitai.com/models/{modelID}")
+        else:
+            json_data = None
+        
+        if json_data == "timeout":
+            output_html = offline
+        if json_data != None and json_data != "timeout":
+            model_versions = _api.update_model_versions(modelID, json_data)
+            output_html = _api.update_model_info(None, model_versions.get('value'), True, modelID, json_data)
+    
+    css_path = Path(__file__).resolve().parents[1] / "style_html.css"
+    with open(css_path, 'r', encoding='utf-8') as css_file:
+        css = css_file.read()
+    replacements = {
+        '#0b0f19': 'var(--body-background-fill)',
+        '#F3F4F6': 'var(--body-text-color)',
+        'white': 'var(--body-text-color)',
+        '#80a6c8': 'var(--secondary-300)',
+        '#60A5FA': 'var(--link-text-color-hover)',
+        '#1F2937': 'var(--input-background-fill)',
+        '#374151': 'var(--input-border-color)',
+        '#111827': 'var(--error-background-fill)',
+        'top: 50%;': '',
+        'padding-top: 0px;': 'padding-top: 475px;',
+        '.civitai_txt2img': '.civitai_placeholder'
+    }
+
+    for old, new in replacements.items():
+        css = css.replace(old, new)
+    
+    style_tag = f'<style>{css}</style>'
+    head_section = f'<head>{style_tag}</head>'
+
+    output_html = output_html.replace('display:flex;align-items:flex-start;', 'display:flex;align-items:flex-start;flex-wrap:wrap;justify-content:center;')
+    output_html = str(head_section + output_html)
+    output_html = output_html.replace('zoom-radio', 'zoom-preview-radio')   
+    output_html = output_html.replace('zoomRadio', 'zoomPreviewRadio')
+    output_html = output_html.replace('zoom-overlay', 'zoom-preview-overlay')
+    output_html = output_html.replace('resetZoom', 'resetPreviewZoom')
+    
+    number = _download.random_number()
+    
     return (
-        gr.HTML.update(HTML), # Card HTML
-        gr.Button.update(interactive=hasPrev), # Prev Button
-        gr.Button.update(interactive=hasNext), # Next Button 
-        gr.Slider.update(value=current_page, maximum=total_pages, label=page_string), # Page Slider
-        gr.Textbox.update(number) # Click first card trigger 
+        gr.Textbox.update(value=output_html, placeholder=number), # Preview HTML
     )
     
 def is_image_url(url):
@@ -408,39 +458,87 @@ def is_image_url(url):
     return any(path.endswith(ext) for ext in image_extensions)
 
 def clean_description(desc):
-    soup = BeautifulSoup(desc, 'html.parser')
-    for a in soup.find_all('a', href=True):
-        link_text = a.text + ' ' + a['href']
-        if not is_image_url(a['href']):
-            a.replace_with(link_text)
+    try:
+        soup = BeautifulSoup(desc, 'html.parser')
+        for a in soup.find_all('a', href=True):
+            link_text = a.text + ' ' + a['href']
+            if not is_image_url(a['href']):
+                a.replace_with(link_text)
 
-    cleaned_text = soup.get_text()
+        cleaned_text = soup.get_text()
+    except ImportError:
+        print("Python module 'BeautifulSoup' was not imported correctly, cannot clean description. Please try to restart or install it manually.")
+        cleaned_text = desc
     return cleaned_text
 
-def save_model_info(install_path, file_name, sha256=None, overwrite_toggle=False, api_response=None):
-    file_path = os.path.join(install_path, file_name)
-    json_file = os.path.splitext(file_path)[0] + ".json"
-    
-    if not sha256:
-        if os.path.exists(json_file):
+def make_dir(path):
+    try:
+        if not os.path.exists(path):
+            os.makedirs(path)
+    except OSError as e:
+        if e.errno == errno.EACCES:
             try:
-                with open(json_file, 'r') as f:
-                    data = json.load(f)
-                    if 'sha256' in data:
-                        sha256 = data['sha256'].upper()
-            except Exception as e:
-                print(f"{gl.print} Failed to open {json_file}: {e}")
+                os.makedirs(path, mode=0o777)
+            except OSError as e:
+                if e.errno == errno.EACCES:
+                    print("Permission denied even with elevated permissions.")
+                else:
+                    print(f"Error creating directory: {e}")
+        else:
+            print(f"Error creating directory: {e}")
+    except Exception as e:
+        print(f"Error creating directory: {e}")
+
+def save_model_info(install_path, file_name, sub_folder, sha256=None, preview_html=None, overwrite_toggle=False, api_response=None):
+    filename = os.path.splitext(file_name)[0]
+    json_file = os.path.join(install_path, f'{filename}.json')
+    make_dir(install_path)
+    
+    save_api_info = getattr(opts, "save_api_info", False)
+    use_local = getattr(opts, "local_path_in_html", False)
+    save_to_custom = getattr(opts, "save_to_custom", False)
     
     if not api_response:
         api_response = gl.json_data
-
-    result = find_and_save(api_response, sha256, file_name, json_file, False, overwrite_toggle)
-    if result == "found":
-        return
-    else:
-        result = find_and_save(api_response, sha256, file_name, json_file, True, overwrite_toggle)
     
-def find_and_save(api_response, sha256, file_name, json_file, no_hash, overwrite_toggle):
+    image_path = get_image_path(install_path, api_response, sub_folder)
+    
+    if save_to_custom:
+        save_path = image_path
+    else:
+        save_path = install_path
+    
+    result = find_and_save(api_response, sha256, file_name, json_file, False, overwrite_toggle)
+    if result != "found":
+        result = find_and_save(api_response, sha256, file_name, json_file, True, overwrite_toggle)            
+    
+    if preview_html:
+        if use_local:
+            img_urls = re.findall(r'data-sampleimg="true" src=[\'"]?([^\'" >]+)', preview_html)
+            for i, img_url in enumerate(img_urls):
+                img_name = f'{filename}_{i}.png'
+                preview_html = preview_html.replace(img_url,f'{os.path.join(image_path, img_name)}')
+                
+        match = re.search(r'(\s*)<div class="model-block">', preview_html)
+        if match:
+            indentation = match.group(1)
+        else:
+            indentation = ''
+        css_link = f'<link rel="stylesheet" type="text/css" href="{css_path}">'
+        utf8_meta_tag = f'{indentation}<meta charset="UTF-8">'
+        head_section = f'{indentation}<head>{indentation}    {utf8_meta_tag}{indentation}    {css_link}{indentation}</head>'
+        HTML = head_section + preview_html
+        path_to_new_file = os.path.join(save_path, f'{filename}.html')
+        with open(path_to_new_file, 'wb') as f:
+            f.write(HTML.encode('utf8'))
+        
+    if save_api_info:
+        path_to_new_file = os.path.join(save_path, f'{filename}.api_info.json')
+        with open(path_to_new_file, mode="w", encoding="utf-8") as f:
+            json.dump(gl.json_info, f, indent=4, ensure_ascii=False)
+
+    
+def find_and_save(api_response, sha256=None, file_name=None, json_file=None, no_hash=None, overwrite_toggle=None):
     for item in api_response.get('items', []):
         for model_version in item.get('modelVersions', []):
             for file in model_version.get('files', []):
@@ -448,6 +546,7 @@ def find_and_save(api_response, sha256, file_name, json_file, no_hash, overwrite
                 sha256_api = file.get('hashes', {}).get('SHA256', '')
                 
                 if file_name == file_name_api if no_hash else sha256 == sha256_api:
+                    gl.json_info = item
                     trained_words = model_version.get('trainedWords', [])
                     model_id = model_version.get('modelId', '')
                     
@@ -479,7 +578,7 @@ def find_and_save(api_response, sha256, file_name, json_file, no_hash, overwrite
                         trained_tags = trained_words
                     
                     if os.path.exists(json_file):
-                        with open(json_file, 'r') as f:
+                        with open(json_file, 'r', encoding="utf-8") as f:
                             try:
                                 content = json.load(f)
                             except:
@@ -503,73 +602,87 @@ def find_and_save(api_response, sha256, file_name, json_file, no_hash, overwrite
                         content["sd version"] = base_model
                         changed = True
                     
-                    with open(json_file, 'w') as f:
+                    with open(json_file, 'w', encoding="utf-8") as f:
                         json.dump(content, f, indent=4)
                         
-                    if changed: print(f"{gl.print} Model info saved to \"{json_file}\"")
+                    if changed: print(f"Model info saved to \"{json_file}\"")
                     return "found"
     
     return "not found"
 
-def get_models(file_path):
+def get_models(file_path, gen_hash=None):
     modelId = None
     sha256 = None
     json_file = os.path.splitext(file_path)[0] + ".json"
-    
     if os.path.exists(json_file):
         try:
-            with open(json_file, 'r') as f:
+            with open(json_file, 'r', encoding="utf-8") as f:
                 data = json.load(f)
                 
                 if 'modelId' in data:
                     modelId = data['modelId']
-                if 'sha256' in data:
+                if 'sha256' in data and data['sha256']:
                     sha256 = data['sha256']
         except Exception as e:
-            print(f"{gl.print} Failed to open {json_file}: {e}")
+            print(f"Failed to open {json_file}: {e}")
     
-    if not modelId or not sha256:
-        sha256 = gen_sha256(file_path)
-        by_hash = f"https://civitai.com/api/v1/model-versions/by-hash/{sha256}"
+    if not modelId or not sha256 or modelId == "Model not found":
+        if gen_hash:
+            if not sha256:
+                sha256 = gen_sha256(file_path)
+            by_hash = f"https://civitai.com/api/v1/model-versions/by-hash/{sha256}"
+        else:
+            if modelId:
+                return modelId
+            else:
+                return None
     
     try:
-        if not modelId:
+        if not modelId or modelId == "Model not found":
             response = requests.get(by_hash, timeout=(10,30))
             if response.status_code == 200:
                 api_response = response.json()
                 if 'error' in api_response:
-                    print(f"{gl.print} \"{file_path}\": {api_response['error']}")
+                    print(f"\"{file_path}\": {api_response['error']}")
                     return None
                 else:
                     modelId = api_response.get("modelId", "")
-        if not modelId or not sha256:
+            elif response.status_code == 503:
+                return "offline"
+            elif response.status_code == 404:
+                api_response = response.json()
+                modelId = api_response.get("error", "")
+            
             if os.path.exists(json_file):
                 try:
-                    with open(json_file, 'r') as f:
+                    with open(json_file, 'r', encoding="utf-8") as f:
                         data = json.load(f)
 
-                    if 'modelId' not in data:
-                        data['modelId'] = modelId
-                    if 'sha256' not in data:
-                        data['sha256'] = sha256.upper()
+                    data['modelId'] = modelId
+                    data['sha256'] = sha256.upper()
                         
-                    with open(json_file, 'w') as f:
+                    with open(json_file, 'w', encoding="utf-8") as f:
                         json.dump(data, f, indent=4)
                 except Exception as e:
-                    print(f"{gl.print} Failed to open {json_file}: {e}")
+                    print(f"Failed to open {json_file}: {e}")
             else:
                 data = {
                     'modelId': modelId,
                     'sha256': sha256.upper()
                     }
-                with open(json_file, 'w') as f:
+                with open(json_file, 'w', encoding="utf-8") as f:
                     json.dump(data, f, indent=4)
         
         return modelId
     except requests.exceptions.Timeout:
-        print(f"{gl.print} Request timed out for {file_path}. Skipping...")
+        print(f"Request timed out for {file_path}. Skipping...")
+        return "offline"
+    except requests.exceptions.ConnectionError:
+        print("Failed to connect to the API. The CivitAI servers might be offline.")
+        return "offline"
     except Exception as e:
-        print(f"{gl.print} An error occurred for {file_path}: {str(e)}")
+        print(f"An error occurred for {file_path}: {str(e)}")
+        return None
 
 def version_match(file_paths, api_response):
     updated_models = []
@@ -578,20 +691,21 @@ def version_match(file_paths, api_response):
     for file_path in file_paths:
         json_path = f"{os.path.splitext(file_path)[0]}.json"
         if os.path.exists(json_path):
-            with open(json_path, 'r') as f:
+            with open(json_path, 'r', encoding="utf-8") as f:
                 try:
                     json_data = json.load(f)
                     sha256 = json_data.get('sha256')
                     if sha256:
                         sha256_hashes[os.path.basename(file_path)] = sha256.upper()
                 except Exception as e:
-                    print(f"{gl.print} Failed to open {json_path}: {e}")
+                    print(f"Failed to open {json_path}: {e}")
         
     file_names_and_hashes = set()
     for file_path in file_paths:
         file_name = os.path.basename(file_path)
         file_name_without_ext = os.path.splitext(file_name)[0]
-        file_sha256 = sha256_hashes.get(file_name, "").upper()
+        file_sha256 = sha256_hashes.get(file_name, "")
+        if file_sha256: file_sha256 = file_sha256.upper()
         file_names_and_hashes.add((file_name_without_ext, file_sha256))
     
     for item in api_response.get('items', []):
@@ -605,7 +719,8 @@ def version_match(file_paths, api_response):
             match_found = False
             for file_entry in files:
                 entry_name = os.path.splitext(file_entry.get('name', ''))[0]
-                entry_sha256 = file_entry.get('hashes', {}).get('SHA256', "").upper()
+                entry_sha256 = file_entry.get('hashes', {}).get('SHA256', "")
+                if entry_sha256: entry_sha256 = entry_sha256.upper()
                 
                 if (entry_name, entry_sha256) in file_names_and_hashes:
                     match_found = True
@@ -631,7 +746,7 @@ def get_content_choices(scan_choices=False):
         return content_list
     return content_list
     
-def file_scan(folders, ver_finish, tag_finish, installed_finish, preview_finish, overwrite_toggle, progress=gr.Progress() if queue else None):
+def file_scan(folders, ver_finish, tag_finish, installed_finish, preview_finish, overwrite_toggle, tile_count, gen_hash, progress=gr.Progress() if queue else None):
     global from_ver, from_installed, no_update
     update_log = getattr(opts, "update_log", True)
     gl.scan_files = True
@@ -708,11 +823,12 @@ def file_scan(folders, ver_finish, tag_finish, installed_finish, preview_finish,
     outdated_models = []
     all_model_ids = []
     file_paths = []
+    all_ids = []
     
     for file_path in files:
         if gl.cancel_status:
             if progress != None:
-                progress(files_done / total_files, desc=f"Saving tags cancelled.")
+                progress(files_done / total_files, desc=f"Processing files cancelled.")
             no_update = True
             gl.scan_files = False
             from_ver, from_installed = False, False
@@ -722,16 +838,34 @@ def file_scan(folders, ver_finish, tag_finish, installed_finish, preview_finish,
         file_name = os.path.basename(file_path)
         if progress != None:
             progress(files_done / total_files, desc=f"Processing file: {file_name}")
-        model_id = get_models(file_path)
-        if model_id != None:
+        
+        model_id = get_models(file_path, gen_hash)
+        if model_id == "offline":
+            print("The CivitAI servers did not respond, unable to retrieve Model ID")
+        elif model_id == "Model not found" and update_log:
+            print(f"model: \"{file_name}\" not found on CivitAI servers.")
+        elif model_id != None:
             all_model_ids.append(f"&ids={model_id}")
+            all_ids.append(model_id)
             file_paths.append(file_path)
+        elif not model_id and update_log:
+            print(f"model ID not found for: \"{file_name}\"")
         files_done += 1
         
     all_items = []
 
     all_model_ids = list(set(all_model_ids))
-
+    
+    if not all_model_ids:
+        progress(1, desc=f"No model IDs could be retrieved.")
+        print("Could not retrieve any Model IDs, please make sure to turn on the \"One-Time Hash Generation for externally downloaded models.\" option if you haven't already.")
+        no_update = True
+        gl.scan_files = False
+        from_ver, from_installed = False, False
+        time.sleep(2)
+        return (gr.HTML.update(value='<div style="min-height: 0px;"></div>'),
+                gr.Textbox.update(value=number))
+    
     def chunks(lst, n):
         for i in range(0, len(lst), n):
             yield lst[i:i + n]
@@ -746,23 +880,44 @@ def file_scan(folders, ver_finish, tag_finish, installed_finish, preview_finish,
         if len(all_model_ids) % 100 != 0:
             url_count += 1
         url_done = 0
+        api_response = {}
         for url in url_list:
             while url:
-                if progress != None:
-                    progress(url_done / url_count, desc=f"Sending API request... {url_done}/{url_count}")
-                response = requests.get(url, timeout=(10,30))
-                if response.status_code == 200:
-                    api_response = response.json()
+                try:
+                    if progress is not None:
+                        progress(url_done / url_count, desc=f"Sending API request... {url_done}/{url_count}")
+                    response = requests.get(url, timeout=(10, 30))
+                    if response.status_code == 200:
+                        api_response_json = response.json()
 
-                    all_items.extend(api_response['items'])
-                    metadata = api_response.get('metadata', {})
-                    url = metadata.get('nextPage', None)
-                else:
-                    print(f"{gl.print} Error: Received status code {response.status_code} with URL:")
-                    print(url)
-                url_done += 1
-                
+                        all_items.extend(api_response_json['items'])
+                        metadata = api_response_json.get('metadata', {})
+                        url = metadata.get('nextPage', None)
+                    elif response.status_code == 503:
+                        return  (
+                            gr.HTML.update(value=offlineHTML),
+                            gr.Textbox.update(value=number)
+                        )
+                    else:
+                        print(f"Error: Received status code {response.status_code} with URL: {url}")
+                        url = None
+                    url_done += 1
+                except requests.exceptions.Timeout:
+                    print(f"Request timed out for {url}. Skipping...")
+                    url = None
+                except requests.exceptions.ConnectionError:
+                    print("Failed to connect to the API. The servers might be offline.")
+                    url = None
+                except Exception as e:
+                    print(f"An unexpected error occurred: {e}")
+                    url = None
+        
         api_response['items'] = all_items
+        if api_response['items'] == []:
+            return  (
+                gr.HTML.update(value=offlineHTML),
+                gr.Textbox.update(value=number)
+            )
         
     if progress != None:
         progress(1, desc="Processing final results...")
@@ -779,7 +934,7 @@ def file_scan(folders, ver_finish, tag_finish, installed_finish, preview_finish,
         
         if update_log:
             for model_name in all_model_names:
-                print(f'{gl.print} "{model_name}" is currently outdated.')
+                print(f'"{model_name}" is currently outdated.')
         
         if len(all_model_ids) == 0:
             no_update = True
@@ -790,24 +945,46 @@ def file_scan(folders, ver_finish, tag_finish, installed_finish, preview_finish,
                     gr.Textbox.update(value=number)
                 )
     
-    model_chunks = list(chunks(all_model_ids, gl.tile_count))
+    model_chunks = list(chunks(all_model_ids, tile_count))
 
     base_url = "https://civitai.com/api/v1/models?limit=100"
     gl.url_list_with_numbers = {i+1: f"{base_url}{''.join(chunk)}" for i, chunk in enumerate(model_chunks)}
 
+    url_error = False
     api_url = gl.url_list_with_numbers.get(1)
-    response = requests.get(api_url, timeout=(10,30))
-    if response.status_code == 200:
-        response.encoding = "utf-8"
-        gl.ver_json = json.loads(response.text)
-        
-        highest_number = max(gl.url_list_with_numbers.keys())
-        gl.ver_json["metadata"]["totalPages"] = highest_number
-        
-        if highest_number > 1:
-            gl.ver_json["metadata"]["nextPage"] = gl.url_list_with_numbers.get(2)
     
-    if from_ver:
+    if not url_error:
+        response = requests.get(api_url, timeout=(10,30))
+        try:
+            if response.status_code == 200:
+                response.encoding = "utf-8"
+                gl.ver_json = json.loads(response.text)
+                
+                highest_number = max(gl.url_list_with_numbers.keys())
+                gl.ver_json["metadata"]["totalPages"] = highest_number
+                
+                if highest_number > 1:
+                    gl.ver_json["metadata"]["nextPage"] = gl.url_list_with_numbers.get(2)
+            else:
+                print(f"Error: Received status code {response.status_code} for URL: {url}")
+                url_error = True
+        except requests.exceptions.Timeout:
+            print(f"Request timed out for {url}. Skipping...")
+            url_error = True
+        except requests.exceptions.ConnectionError:
+            print("Failed to connect to the API. The servers might be offline.")
+            url_error = True
+        except Exception as e:  
+            print(f"An unexpected error occurred: {e}")
+            url_error = True
+        
+    if url_error:
+        gl.scan_files = False
+        return  (
+                gr.HTML.update(value=offlineHTML),
+                gr.Textbox.update(value=number)
+            )
+    elif from_ver:
         gl.scan_files = False
         return  (
                 gr.HTML.update(value='<div style="font-size: 24px; text-align: center; margin: 50px !important;">Outdated models have been found.<br>Please press the button above to load the models into the browser tab</div>'),
@@ -822,11 +999,15 @@ def file_scan(folders, ver_finish, tag_finish, installed_finish, preview_finish,
             )
 
     elif from_tag:
-        for file in file_paths:
-            install_path, file_name = os.path.split(file)
-            save_model_info(install_path, file_name, api_response=api_response, overwrite_toggle=overwrite_toggle)
+        for file_path, id_value in zip(file_paths, all_ids):
+            install_path, file_name = os.path.split(file_path)
+            model_versions = _api.update_model_versions(id_value, api_response)
+            preview_html = _api.update_model_info(None, model_versions.get('value'), True, id_value, api_response)
+            sub_folder = os.path.normpath(os.path.relpath(install_path, gl.main_folder))
+            save_model_info(install_path, file_name, sub_folder, preview_html=preview_html, api_response=api_response, overwrite_toggle=overwrite_toggle)
         if progress != None:
             progress(1, desc=f"All tags succesfully saved!")
+        gl.scan_files = False
         time.sleep(2)
         return  (
                 gr.HTML.update(value='<div style="min-height: 0px;"></div>'),
@@ -843,6 +1024,7 @@ def file_scan(folders, ver_finish, tag_finish, installed_finish, preview_finish,
                 progress(completed_preview / preview_count, desc=f"Saving preview images... {completed_preview}/{preview_count} | {name}")
             save_preview(file, api_response, overwrite_toggle)
             completed_preview += 1
+        gl.scan_files = False
         return  (
                 gr.HTML.update(value='<div style="min-height: 0px;"></div>'),
                 gr.Textbox.update(value=number)
@@ -852,6 +1034,48 @@ def save_tag_start(tag_start):
     global from_tag, from_ver, from_installed, from_preview
     from_tag, from_ver, from_installed, from_preview = True, False, False, False
     number = _download.random_number(tag_start)
+    return (
+        gr.Textbox.update(value=number),
+        gr.Button.update(interactive=False, visible=False),
+        gr.Button.update(interactive=True, visible=True),
+        gr.Button.update(interactive=False, visible=True),
+        gr.Button.update(interactive=False, visible=True),
+        gr.Button.update(interactive=False, visible=True),
+        gr.HTML.update(value='<div style="min-height: 100px;"></div>')
+    )
+    
+def save_preview_start(preview_start):
+    global from_tag, from_ver, from_installed, from_preview
+    from_preview, from_tag, from_ver, from_installed = True, False, False, False
+    number = _download.random_number(preview_start)
+    return (
+        gr.Textbox.update(value=number),
+        gr.Button.update(interactive=False, visible=False),
+        gr.Button.update(interactive=True, visible=True),
+        gr.Button.update(interactive=False, visible=True),
+        gr.Button.update(interactive=False, visible=True),
+        gr.Button.update(interactive=False, visible=True),
+        gr.HTML.update(value='<div style="min-height: 100px;"></div>')
+    )
+
+def installed_models_start(installed_start):
+    global from_installed, from_ver, from_tag, from_preview
+    from_installed, from_ver, from_tag, from_preview = True, False, False, False
+    number = _download.random_number(installed_start)
+    return (
+        gr.Textbox.update(value=number),
+        gr.Button.update(interactive=False, visible=False),
+        gr.Button.update(interactive=True, visible=True),
+        gr.Button.update(interactive=False, visible=True),
+        gr.Button.update(interactive=False, visible=True),
+        gr.Button.update(interactive=False, visible=True),
+        gr.HTML.update(value='<div style="min-height: 100px;"></div>')
+    )
+
+def ver_search_start(ver_start):
+    global from_ver, from_tag, from_installed, from_preview
+    from_ver, from_tag, from_installed, from_preview = True, False, False, False
+    number = _download.random_number(ver_start)
     return (
         gr.Textbox.update(value=number),
         gr.Button.update(interactive=False, visible=False),
@@ -872,20 +1096,6 @@ def save_tag_finish():
         gr.Button.update(interactive=True, visible=True),
         gr.Button.update(interactive=False, visible=False)
     )
-    
-def save_preview_start(preview_start):
-    global from_tag, from_ver, from_installed, from_preview
-    from_preview, from_tag, from_ver, from_installed = True, False, False, False
-    number = _download.random_number(preview_start)
-    return (
-        gr.Textbox.update(value=number),
-        gr.Button.update(interactive=False, visible=False),
-        gr.Button.update(interactive=True, visible=True),
-        gr.Button.update(interactive=False, visible=True),
-        gr.Button.update(interactive=False, visible=True),
-        gr.Button.update(interactive=False, visible=True),
-        gr.HTML.update(value='<div style="min-height: 100px;"></div>')
-    )
 
 def save_preview_finish():
     global from_preview
@@ -897,22 +1107,8 @@ def save_preview_finish():
         gr.Button.update(interactive=True, visible=True),
         gr.Button.update(interactive=False, visible=False)
     )
-    
-def start_ver_search(ver_start):
-    global from_ver, from_tag, from_installed, from_preview
-    from_ver, from_tag, from_installed, from_preview = True, False, False, False
-    number = _download.random_number(ver_start)
-    return (
-        gr.Textbox.update(value=number),
-        gr.Button.update(interactive=False, visible=False),
-        gr.Button.update(interactive=True, visible=True),
-        gr.Button.update(interactive=False, visible=True),
-        gr.Button.update(interactive=False, visible=True),
-        gr.Button.update(interactive=False, visible=True),
-        gr.HTML.update(value='<div style="min-height: 100px;"></div>')
-    )
 
-def finish_ver_search():
+def scan_finish():
     return (
         gr.Button.update(interactive=no_update, visible=no_update),
         gr.Button.update(interactive=no_update, visible=no_update),
@@ -922,36 +1118,24 @@ def finish_ver_search():
         gr.Button.update(interactive=not no_update, visible=not no_update)
     )
 
-def start_installed_models(installed_start):
-    global from_installed, from_ver, from_tag, from_preview
-    from_installed, from_ver, from_tag, from_preview = True, False, False, False
-    number = _download.random_number(installed_start)
-    return (
-        gr.Textbox.update(value=number),
-        gr.Button.update(interactive=False, visible=False),
-        gr.Button.update(interactive=True, visible=True),
-        gr.Button.update(interactive=False, visible=True),
-        gr.Button.update(interactive=False, visible=True),
-        gr.Button.update(interactive=False, visible=True),
-        gr.HTML.update(value='<div style="min-height: 100px;"></div>')
-    )
-    
-def finish_installed_models():
-    return (
-        gr.Button.update(interactive= no_update, visible= no_update),
-        gr.Button.update(interactive= no_update, visible= no_update),
-        gr.Button.update(interactive= no_update, visible= no_update),
-        gr.Button.update(interactive= no_update, visible= no_update),
-        gr.Button.update(interactive= False, visible=False),
-        gr.Button.update(interactive= not no_update, visible= not no_update)
-    )
-
-def load_to_browser():
+def load_to_browser(content_type, sort_type, period_type, use_search_term, search_term, tile_count, base_filter, nsfw):
     global from_ver, from_installed
     if from_ver:
-        model_list_return = _api.update_model_list(from_ver=True)
+        model_list_return = _api.update_model_list(from_ver=True, tile_count=tile_count)
     if from_installed:
-        model_list_return = _api.update_model_list(from_installed=True)
+        model_list_return = _api.update_model_list(from_installed=True, tile_count=tile_count)
+    
+    use_LORA = getattr(opts, "use_LORA", False)
+    if content_type:
+        if use_LORA and 'LORA & LoCon' in content_type:
+            content_type.remove('LORA & LoCon')
+            if 'LORA' not in content_type:
+                content_type.append('LORA')
+            if 'LoCon' not in content_type:
+                content_type.append('LoCon')
+    
+    current_inputs = (content_type, sort_type, period_type, use_search_term, search_term, tile_count, base_filter, nsfw)
+    gl.previous_inputs = current_inputs
     
     gl.file_scan = True
     from_ver, from_installed = False, False

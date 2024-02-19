@@ -1,14 +1,21 @@
 "use strict";
 
 // Selects a model by pressing on card
-function select_model(model_name, event, bool = false, content_type = null) {
+function select_model(model_name, event, bool = false, content_type = null, modelPath = null) {
     if (event) {
         var className = event.target.className;
         if (className.includes('custom-checkbox') || className.includes('model-checkbox')) {
             return;
         }
     }
-    
+
+    if (!modelPath) {
+        modelPath = "Not Found";
+    }
+    const pathInput = gradioApp().querySelector('#model_path_input textarea');
+    pathInput.value = modelPath;
+    updateInput(pathInput);
+
     const output = bool ? gradioApp().querySelector('#model_sent textarea') : gradioApp().querySelector('#model_select textarea');
 
     if (output && model_name) {
@@ -87,7 +94,6 @@ function updateCard(modelNameWithSuffix) {
             additionalClassName = 'civmodelcardinstalled';
             break;
         default:
-            console.error('Unknown suffix', suffix);
             return;
     }
     const parentDiv = document.querySelector('.civmodellist');
@@ -261,27 +267,20 @@ function updateSVGIcons() {
 }
 
 // Creates a tooltip if the user wants to filter liked models without a personal API key
-function createTooltipOnHover() {
-    const toggle4L = document.getElementById('toggle4L');
-    const toggle4 = document.getElementById('toggle4');
-
-    if (toggle4L || toggle4) {
-        const targetElement = toggle4L || toggle4;
-
+function createTooltip(element, hover_element, insertText) {
+    if (element) {
         const tooltip = document.createElement('div');
-        tooltip.className = 'tooltip';
-        tooltip.textContent = 'Requires an API Key\nConfigurable in CivitAI settings tab';
+        tooltip.className = 'browser_tooltip';
+        tooltip.textContent = insertText;
         tooltip.style.cssText = 'display: none; text-align: center; white-space: pre;';
 
-        targetElement.addEventListener('mouseover', () => {
+        hover_element.addEventListener('mouseover', () => {
             tooltip.style.display = 'block';
         });
-
-        targetElement.addEventListener('mouseout', () => {
+        hover_element.addEventListener('mouseout', () => {
             tooltip.style.display = 'none';
         });
-
-        targetElement.appendChild(tooltip);
+        element.appendChild(tooltip);
     }
 }
 
@@ -307,7 +306,7 @@ function setupClickOutsideListener() {
 // Create hyperlink in settings to CivitAI account settings
 function createLink(infoElement) {
 
-    const existingText = "(You can create your own API key in your CivitAI account settings, Requires UI reload)";
+    const existingText = "(You can create your own API key in your CivitAI account settings, this required for some downloads, Requires UI reload)";
     const linkText = "CivitAI account settings";
     
     const [textBefore, textAfter] = existingText.split(linkText);
@@ -404,6 +403,9 @@ function createCardButtons(event) {
 
             if (cardDivs.length > 0) {
                 clearInterval(checkForCardDivs);
+                
+                const cardScale = document.querySelector('#setting_extra_networks_card_text_scale > div > div > input').valueAsNumber * 100;
+                const viewBoxHeight = (cardScale < 100) ? (100 - cardScale) * 2 : -(cardScale - 100) * 2;
 
                 cardDivs.forEach(cardDiv => {
                     const buttonRow = cardDiv.querySelector('.button-row');
@@ -430,13 +432,19 @@ function createCardButtons(event) {
                         return;
                     }
 
-                    const metaDataButton = buttonRow.querySelector('.metadata-button.card-button')
-
+                    const metaDataButton = buttonRow.querySelector('.metadata-button.card-button');
+                    
+                    const copyPathButton = buttonRow.querySelector('.copy-path-button.card-button');
+                    let modelPath = "";
+                    if (copyPathButton) {
+                        modelPath = copyPathButton.getAttribute('data-clipboard-text');
+                    }
+                    
                     const newDiv = document.createElement('div');
                     newDiv.classList.add('goto-civitbrowser', 'card-button');
                     newDiv.addEventListener('click', function (event) {
                         event.stopPropagation();
-                        sendModelToBrowser(modelName, content_type);
+                        modelInfoPopUp(modelName, content_type, modelPath);
                     });
 
                     const svgIcon = document.createElementNS("http://www.w3.org/2000/svg", "svg");
@@ -451,9 +459,11 @@ function createCardButtons(event) {
                         }
                         svgIcon.setAttribute('width', '40');
                         svgIcon.setAttribute('height', '40');
+                        newDiv.setAttribute('style', 'width: 42px !important;');
                     }
-                    svgIcon.setAttribute('viewBox', '75 0 500 500');
+                    svgIcon.setAttribute('viewBox', `75 ${viewBoxHeight} 500 500`);
                     svgIcon.setAttribute('fill', 'white');
+                    svgIcon.setAttribute('style', `scale: ${cardScale}%;`);
 
                     svgIcon.innerHTML = `
                         <path d="M 352.79 218.85 L 319.617 162.309 L 203.704 162.479 L 146.28 259.066 L 203.434 355.786 L 319.373 355.729 L 352.773 299.386 L 411.969 299.471 L 348.861 404.911 L 174.065 404.978 L 87.368 259.217 L 174.013 113.246 L 349.147 113.19 L 411.852 218.782 L 352.79 218.85 Z"/>
@@ -467,56 +477,235 @@ function createCardButtons(event) {
         }, 100);
     }
 }
-
 document.addEventListener('click', createCardButtons);
-// Sends the selected model list to a python function
-function sendModelToBrowser(modelName, content_type) {
-    const tabNav = document.querySelector('.tab-nav');
-    const buttons = tabNav.querySelectorAll('button');
-    for (const button of buttons) {
-        if (button.textContent.includes('Civitai')) {
-            button.click();
+
+function modelInfoPopUp(modelName, content_type, modelPath) {
+    select_model(modelName, null, true, content_type, modelPath);
+
+    // Create the overlay
+    var overlay = document.createElement('div');
+    overlay.classList.add('civitai-overlay');
+    overlay.style.position = 'fixed';
+    overlay.style.top = '0';
+    overlay.style.left = '0';
+    overlay.style.width = '100%';
+    overlay.style.height = '100%';
+    overlay.style.backgroundColor = 'rgba(20, 20, 20, 0.95)';
+    overlay.style.zIndex = '1001';
+    overlay.style.overflowY = 'auto';
+
+    // Create the close button
+    var closeButton = document.createElement('div');
+    closeButton.classList.add('civitai-overlay-close');
+    closeButton.textContent = '×';
+    closeButton.style.zIndex = '1011';
+    closeButton.style.position = 'fixed';
+    closeButton.style.right = '22px';
+    closeButton.style.top = '0';
+    closeButton.style.cursor = 'pointer';
+    closeButton.style.color = 'white';
+    closeButton.style.fontSize = '32pt';
+    closeButton.addEventListener('click', hidePopup);
+    document.addEventListener('keydown', handleKeyPress);
+
+    // Create the pop-up window
+    var inner = document.createElement('div');
+    inner.classList.add('civitai-overlay-inner');
+    inner.style.position = 'absolute';
+    inner.style.top = '50%';
+    inner.style.left = '50%';
+    inner.style.width = 'auto';
+    inner.style.transform = 'translate(-50%, -50%)';
+    inner.style.background = 'var(--body-background-fill)';
+    inner.style.padding = '2em';
+    inner.style.borderRadius = 'var(--block-radius)';
+    inner.style.borderStyle = 'solid';
+    inner.style.borderWidth = 'var(--block-border-width)';
+    inner.style.borderColor = 'var(--block-border-color)';
+    inner.style.zIndex = '1001';
+
+    // Placeholder model content until model is loaded by other function
+    var modelInfo = document.createElement('div');
+    modelInfo.classList.add('civitai-overlay-text');
+    modelInfo.textContent = 'Loading model info, please wait!';
+    modelInfo.style.fontSize = '24px';
+    modelInfo.style.color = 'white';
+    modelInfo.style.fontFamily = 'var(--font)';
+
+    document.body.style.overflow = 'hidden';
+    document.body.appendChild(overlay);
+    overlay.appendChild(closeButton);
+    overlay.appendChild(inner);
+    inner.appendChild(modelInfo);
+
+    overlay.addEventListener('click', function (event) {
+        if (event.target === overlay) {
+            hidePopup();
+        }
+    });
+
+    setDynamicWidth(inner);
+
+    // Update width on window resize
+    window.addEventListener('resize', function() {
+        setDynamicWidth(inner);
+    });
+}
+
+function setDynamicWidth(inner) {
+    var windowWidth = window.innerWidth;
+    var dynamicWidth = Math.min(Math.max(windowWidth - 150, 350), 900);
+    inner.style.width = dynamicWidth + 'px';
+}
+
+// Function to hide the popup
+function hidePopup() {
+    var overlay = document.querySelector('.civitai-overlay');
+    if (overlay) {
+        document.body.removeChild(overlay);
+        document.body.style.overflow = 'auto';
+        window.removeEventListener('resize', setDynamicWidth);
+    }
+}
+
+// Function to handle key presses
+function handleKeyPress(event) {
+    if (event.key === 'Escape') {
+        hidePopup();
+    }
+}
+
+function inputHTMLPreviewContent(html_input) {
+    var inner = document.querySelector('.civitai-overlay-inner')
+    let startIndex = html_input.indexOf("'value': '");
+    if (startIndex !== -1) {
+        startIndex += "'value': '".length;
+        const endIndex = html_input.indexOf("', 'type': None,", startIndex);
+        if (endIndex !== -1) {
+            let extractedText = html_input.substring(startIndex, endIndex);
+            var modelIdNotFound = extractedText.includes(">Model ID not found.<br>The");
+
+            extractedText = extractedText.replace(/\\n\s*</g, '<');
+            extractedText = extractedText.replace(/\\n/g, ' ');
+            extractedText = extractedText.replace(/\\t/g, '');
+            extractedText = extractedText.replace(/\\'/g, "'");
             
-            const firstButton = document.querySelector('#tab_civitai_interface > div > div > div > button');
-            if (firstButton) {
-                firstButton.click();
+            var overlayText = document.querySelector('.civitai-overlay-text');
+            var modelInfo = document.createElement('div');
+            
+            overlayText.parentNode.removeChild(overlayText);
+            if (!modelIdNotFound) {
+                inner.style.top = 0;
+                inner.style.transform = 'translate(-50%, 0)';
             }
+            modelInfo.innerHTML = extractedText;
+            inner.appendChild(modelInfo);
         }
     }
-    select_model(modelName, null, true, content_type);
+}
+
+function metaToTxt2Img(type, element) {
+    const selection = window.getSelection();
+    if (selection.toString().length > 0) {
+        return;
+    }
+    const genButton = gradioApp().querySelector('#txt2img_extra_tabs > div > button')
+    let input = element.querySelector('dd').textContent;
+    let inf;
+    if (input.endsWith(',')) {
+        inf = input + ' ';
+    } else {
+        inf = input + ', ';
+    }
+    let is_positive = false
+    let is_negative = false
+    switch(type) {
+        case 'prompt':
+            is_positive = true
+            break;
+        case 'negativePrompt':
+            inf = 'Negative prompt: ' + inf;
+            is_negative = true
+            break;
+        case 'seed':
+            inf = 'Seed: ' + inf;
+            inf = inf + inf + inf;
+            break;
+        case 'Size':
+            inf = 'Size: ' + inf;
+            inf = inf + inf + inf;
+            break;
+        case 'Model':
+            inf = 'Model: ' + inf;
+            inf = inf + inf + inf;
+            break;
+        case 'clipSkip':
+            inf = 'Clip skip: ' + inf;
+            inf = inf + inf + inf;
+            break;
+        case 'sampler':
+            inf = 'Sampler: ' + inf;
+            inf = inf + inf + inf;
+            break;
+        case 'steps':
+            inf = 'Steps: ' + inf;
+            inf = inf + inf + inf;
+            break;
+        case 'cfgScale':
+            inf = 'CFG scale: ' + inf;
+            inf = inf + inf + inf;
+            break;
+    }
+    const prompt = gradioApp().querySelector('#txt2img_prompt textarea');
+    const neg_prompt = gradioApp().querySelector('#txt2img_neg_prompt textarea');
+    const cfg_scale = gradioApp().querySelector('#txt2img_cfg_scale > div:nth-child(2) > div > input');
+    let final = '';
+    let cfg = 'CFG scale: ' + cfg_scale.value + ", "
+    let prompt_addon = cfg + cfg + cfg
+    if (is_positive) {
+        final = inf + "\nNegative prompt: " + neg_prompt.value + "\n" + prompt_addon;
+    } else if (is_negative) {
+        final = prompt.value + "\n" + inf + "\n" + prompt_addon;
+    } else {
+        final = prompt.value + "\nNegative prompt: " + neg_prompt.value + "\n" + inf;
+    }
+    genInfo_to_txt2img(final, false)
+    hidePopup();
+    sendClick(genButton);
 }
 
 // Creates a list of the selected models
 var selectedModels = [];
-function multi_model_select(modelName, isChecked) {
+var selectedTypes = [];
+function multi_model_select(modelName, modelType, isChecked) {
     if (arguments.length === 0) {
         selectedModels = [];
+        selectedTypes = [];
         return;
     }
     if (isChecked) {
         if (!selectedModels.includes(modelName)) {
             selectedModels.push(modelName);
         }
+        selectedTypes.push(modelType)
     } else {
-        var index = selectedModels.indexOf(modelName);
-        if (index > -1) {
-            selectedModels.splice(index, 1);
+        var modelIndex = selectedModels.indexOf(modelName);
+        if (modelIndex > -1) {
+            selectedModels.splice(modelIndex, 1);
+        }
+        var typesIndex = selectedTypes.indexOf(modelType);
+        if (typesIndex > -1) {
+            selectedTypes.splice(typesIndex, 1);
         }
     }
-    const output = gradioApp().querySelector('#selected_list textarea');
-    output.value = JSON.stringify(selectedModels);
-    updateInput(output);
-}
+    const selected_model_list = gradioApp().querySelector('#selected_model_list textarea');
+    selected_model_list.value = JSON.stringify(selectedModels);
 
-// Clicks the first item in the browser cards list
-function clickFirstFigureInColumn() {
-    const columnDiv = document.querySelector('.column.civmodellist');
-    if (columnDiv) {
-        const firstFigure = columnDiv.querySelector('figure');
-        if (firstFigure) {
-            firstFigure.click();
-        }
-    }
+    const selected_type_list = gradioApp().querySelector('#selected_type_list textarea');
+    selected_type_list.value = JSON.stringify(selectedTypes);
+    
+    updateInput(selected_model_list);
+    updateInput(selected_type_list);
 }
 
 // Metadata button click detector
@@ -577,25 +766,172 @@ function onEditButtonCardClick(nameValue) {
     }, 100);
 }
 
+function sendClick(location) {
+    const clickEvent = new MouseEvent('click', {
+        view: window,
+        bubbles: true,
+        cancelable: true
+    });
+    location.dispatchEvent(clickEvent);
+}
+
+let currentDlCancelled = false;
+
+function cancelCurrentDl() {
+    currentDlCancelled = true;
+}
+
+let allDlCancelled = false;
+
+function cancelAllDl() {
+    allDlCancelled = true;
+}
+
+function setSortable() {
+    new Sortable(document.getElementById('queue_list'), {
+        onEnd: function(evt) {
+            const gradio_input = document.querySelector('#civitai_dl_list.prose').innerHTML;
+            const gradio_html = gradioApp().querySelector('#queue_html_input textarea');
+            let output = gradioApp().querySelector('#arrange_dl_id textarea');
+            output.value = evt.item.getAttribute('dl_id') + "." +  evt.newIndex;
+            updateInput(output);
+            gradio_html.value = gradio_input;
+            updateInput(gradio_html);
+        }
+    });
+}
+
+function cancelQueueDl() {
+    const cancelBtn = gradioApp().querySelector('#html_cancel_input textarea');
+    const randomNumber = Math.floor(Math.random() * 1000);
+    const paddedNumber = String(randomNumber).padStart(3, '0');
+    cancelBtn.value = paddedNumber;
+    updateInput(cancelBtn);cancelBtn
+}
+
+function setDownloadProgressBar() {
+    const gradio_html = gradioApp().querySelector('#queue_html_input textarea');
+    let browserContainer = document.querySelector('#DownloadProgress');
+    let browserProgress = browserContainer.querySelector('.progress-bar');
+    if (!browserProgress || !browserProgress.style.width) {
+        setTimeout(setDownloadProgressBar, 500);
+        return;
+    }
+
+    let dlList = document.getElementById('civitai_dl_list');
+    let nonQueue = dlList.querySelector('.civitai_nonqueue_list');
+    let dlItem = dlList.querySelector('.civitai_dl_item');
+    let dlBtn = dlItem.querySelector('.dl_action_btn > span');
+    dlBtn.innerText = "Cancel";
+    dlBtn.setAttribute('onclick', 'cancelQueueDl()');
+    let dlId = dlItem.getAttribute('dl_id');
+    let selector = '.civitai_dl_item[dl_id="' + parseInt(dlId) + '"]';
+
+    let dlProgressBar = null;
+    let percentage = null;
+    let dlText = null;
+
+    nonQueue.appendChild(dlItem);
+
+    const interval = setInterval(() => {
+        browserContainer = document.querySelector('#DownloadProgress');
+        browserProgress = browserContainer.querySelector('.progress-bar');
+        dlText = browserContainer.querySelector('.progress-level-inner');
+        if (!dlText) {
+            return;
+        }
+        dlText = dlText.innerText
+        percentage = parseFloat(browserProgress.style.width);
+
+        dlItem = dlList.querySelector(selector);
+        dlProgressBar = dlItem.querySelector('.dl_progress_bar');
+
+        dlProgressBar.textContent = percentage.toFixed(1) + '%';
+        dlProgressBar.style.width = percentage + '%';
+
+        if (percentage >= 100) {
+            clearInterval(interval);
+            dlBtn = dlItem.querySelector('.dl_action_btn > span');
+            dlBtn.innerText = "Remove";
+            dlBtn.setAttribute('onclick', 'removeDlItem(' + parseInt(dlId) + ', this)');
+            dlItem.className = 'civitai_dl_item_completed';
+            dlProgressBar.textContent = 'Completed';
+            dlProgressBar.style.width = '100%';
+            const gradio_input = document.querySelector('#civitai_dl_list.prose').innerHTML;
+            gradio_html.value = gradio_input
+            updateInput(gradio_html);
+            return;
+        }
+
+        if (currentDlCancelled) {
+            clearInterval(interval);
+            dlBtn = dlItem.querySelector('.dl_action_btn > span');
+            dlBtn.innerText = "Remove";
+            dlBtn.setAttribute('onclick', 'removeDlItem(' + parseInt(dlId) + ', this)');
+            currentDlCancelled = false;
+            dlItem.className = 'civitai_dl_item_failed';
+            dlProgressBar.textContent = 'Cancelled';
+            dlProgressBar.style.width = "0%";
+            const gradio_input = document.querySelector('#civitai_dl_list.prose').innerHTML;
+            gradio_html.value = gradio_input
+            updateInput(gradio_html);
+            return;
+        } else if (allDlCancelled) {
+            clearInterval(interval);
+            allDlCancelled = false;
+            let dlItems = dlList.querySelectorAll('.civitai_dl_item');
+            dlItems.forEach(function(item) {
+                dlBtn = dlItem.querySelector('.dl_action_btn > span');
+                dlBtn.innerText = "Remove";
+                dlBtn.setAttribute('onclick', 'removeDlItem(' + parseInt(dlId) + ', this)');
+                dlProgressBar = item.querySelector('.dl_progress_bar');
+                dlProgressBar.textContent = 'Cancelled';
+                dlProgressBar.style.width = "0%";
+                nonQueue.appendChild(item);
+                item.className = 'civitai_dl_item_failed';
+            });
+            const gradio_input = document.querySelector('#civitai_dl_list.prose').innerHTML;
+            gradio_html.value = gradio_input
+            updateInput(gradio_html);
+            return;
+        } else if (dlText.includes('Encountered an error during download of') || dlText.includes('not found on CivitAI servers') || dlText.includes('requires a personal CivitAI API to be downloaded')) {
+            clearInterval(interval);
+            dlBtn = dlItem.querySelector('.dl_action_btn > span');
+            dlBtn.innerText = "Remove";
+            dlBtn.setAttribute('onclick', 'removeDlItem(' + parseInt(dlId) + ', this)');
+            dlItem.className = 'civitai_dl_item_failed';
+            dlProgressBar.textContent = 'Failed';
+            dlProgressBar.style.width = "0%";
+            const gradio_input = document.querySelector('#civitai_dl_list.prose').innerHTML;
+            gradio_html.value = gradio_input
+            updateInput(gradio_html);
+            return;
+        }
+    }, 500);
+}
+
+function removeDlItem(dl_id, element) {
+    const gradio_html = gradioApp().querySelector('#queue_html_input textarea');
+    const output = gradioApp().querySelector('#remove_dl_id textarea');
+    var dl_item = element.parentNode.parentNode;
+    dl_item.parentNode.removeChild(dl_item);
+    output.value = dl_id
+    updateInput(output);
+
+    const gradio_input = document.querySelector('#civitai_dl_list.prose').innerHTML;
+    gradio_html.value = gradio_input;
+    updateInput(gradio_html);
+}
+
 // Selects all models
 function selectAllModels() {
     const checkboxes = Array.from(document.querySelectorAll('.model-checkbox'));
     const allChecked = checkboxes.every(checkbox => checkbox.checked);
     const allUnchecked = checkboxes.every(checkbox => !checkbox.checked);
-
     if (allChecked || allUnchecked) {
-        checkboxes.forEach(clickCheckbox);
+        checkboxes.forEach(sendClick);
     } else {
-        checkboxes.filter(checkbox => !checkbox.checked).forEach(clickCheckbox);
-    }
-
-    function clickCheckbox(checkbox) {
-        const clickEvent = new MouseEvent('click', {
-            view: window,
-            bubbles: true,
-            cancelable: true
-        });
-        checkbox.dispatchEvent(clickEvent);
+        checkboxes.filter(checkbox => !checkbox.checked).forEach(sendClick);
     }
 }
 
@@ -603,36 +939,29 @@ function selectAllModels() {
 function deselectAllModels() {
     setTimeout(() => {
         const checkboxes = Array.from(document.querySelectorAll('.model-checkbox'));
-        checkboxes.filter(checkbox => checkbox.checked).forEach(uncheckCheckbox);
-        function uncheckCheckbox(checkbox) {
-            const clickEvent = new MouseEvent('click', {
-                view: window,
-                bubbles: true,
-                cancelable: true
-            });
-            checkbox.dispatchEvent(clickEvent);
-        }
+        checkboxes.filter(checkbox => checkbox.checked).forEach(sendClick);
     }, 1000);
 }
 
 // Sends Image URL to Python to pull generation info
 function sendImgUrl(image_url) {
     const randomNumber = Math.floor(Math.random() * 1000);
+    const genButton = gradioApp().querySelector('#txt2img_extra_tabs > div > button')
     const paddedNumber = String(randomNumber).padStart(3, '0');
     const input = gradioApp().querySelector('#civitai_text2img_input textarea');
     input.value = paddedNumber + "." + image_url;
     updateInput(input);
+    hidePopup();
+    sendClick(genButton);
 }
 
 // Sends txt2img info to txt2img tab
-function genInfo_to_txt2img(genInfo) {
+function genInfo_to_txt2img(genInfo, do_slice=true) {
     let insert = gradioApp().querySelector('#txt2img_prompt textarea');
     let pasteButton = gradioApp().querySelector('#paste');
     if (genInfo) {
-        var cleanGenInfo = genInfo.slice(5);
-        insert.value = cleanGenInfo;
+        insert.value = do_slice ? genInfo.slice(5) : genInfo;
         insert.dispatchEvent(new Event('input', { bubbles: true }));
-
         pasteButton.dispatchEvent(new Event('click', { bubbles: true }));
     }
 }
@@ -640,7 +969,6 @@ function genInfo_to_txt2img(genInfo) {
 // Hide installed models
 function hideInstalled(toggleValue) {
     const modelList =  document.querySelectorAll('.column.civmodellist > .civmodelcardinstalled')
-    console.log(modelList)
     modelList.forEach(item => {
         item.style.display = toggleValue ? 'none' : 'block';
     });
@@ -649,27 +977,58 @@ function hideInstalled(toggleValue) {
 // Runs all functions when the page is fully loaded
 function onPageLoad() {
     const divElement = document.getElementById('setting_custom_api_key');
-    var civitaiDiv = document.getElementById('civitai_preview_html');
+    let civitaiDiv = document.getElementById('civitai_preview_html');
+    let queue_list = document.querySelector("#queue_list");
     const infoElement = divElement?.querySelector('.info');
     if (!infoElement) {
         return;
     }
 
-    var subfolderDiv = document.querySelector("#settings_civitai_browser_plus > div > div");
-    var subfolders = subfolderDiv.querySelectorAll("[id$='subfolder']");
-
-    createAccordion(subfolderDiv, subfolders, "Default sub folders");
-
-    var upscalerDiv = document.querySelector("#settings_civitai_browser_plus > div > div > #settings-accordion > div");
-    var upscalers = upscalerDiv.querySelectorAll("[id$='upscale_subfolder']");
-
-    createAccordion(upscalerDiv, upscalers, "Upscalers");
-    
-    observer.observe(civitaiDiv);
     clearInterval(intervalID);
     updateSVGIcons();
+
+    let subfolderDiv = document.querySelector("#settings_civitai_browser_plus > div > div");
+    let downloadDiv = document.querySelector("#settings_civitai_browser_download > div > div");
+    if (subfolderDiv || downloadDiv) {
+        let div = subfolderDiv || downloadDiv;
+        let subfolders = div.querySelectorAll("[id$='subfolder']");
+        createAccordion(div, subfolders, "Default sub folders");
+    }
+
+    let upscalerDiv = document.querySelector("#settings_civitai_browser_plus > div > div > #settings-accordion > div");
+    let downloadDivSub = document.querySelector("#settings_civitai_browser_download > div > div > #settings-accordion > div");
+    if (upscalerDiv || downloadDivSub) {
+        let div = upscalerDiv || downloadDivSub;
+        let upscalers = div.querySelectorAll("[id$='upscale_subfolder']");
+        createAccordion(div, upscalers, "Upscalers");
+    }
+
+    let settingsDiv = document.querySelector("#settings_civitai_browser > div > div");
+    if (subfolderDiv || settingsDiv) {
+        let div = subfolderDiv || settingsDiv;
+        let subfolders = div.querySelectorAll("[id^='setting_insert_sub']");
+        createAccordion(div, subfolders, "Insert sub folder options");
+    }
+
+    
+    let toggle4L = document.getElementById('toggle4L');
+    let toggle4 = document.getElementById('toggle4');
+    if (toggle4L || toggle4) {
+        let like_toggle = toggle4L || toggle4;
+        let insertText = 'Requires an API Key\nConfigurable in CivitAI settings tab';
+        createTooltip(like_toggle, like_toggle, insertText);
+    }
+
+    let hash_toggle_hover = document.querySelector('#skip_hash_toggle > label');
+    let hash_toggle = document.querySelector('#skip_hash_toggle');
+    if (hash_toggle) {
+        let insertText = 'This option generates unique hashes for models that were not downloaded with this extension.\nA hash is required for any of the options below to work, a model with no hash will be skipped.\nInitial hash generation is a one-time process per file.';
+        createTooltip(hash_toggle, hash_toggle_hover, insertText);
+    }
+
+    observer.observe(civitaiDiv);
+    queueObserver.observe(queue_list, queueObserverOptions);
     adjustFilterBoxAndButtons();
-    createTooltipOnHover();
     setupClickOutsideListener();
     createLink(infoElement);
     updateBackToTopVisibility([{isIntersecting: false}]);

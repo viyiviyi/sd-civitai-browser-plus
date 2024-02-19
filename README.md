@@ -18,6 +18,7 @@
 <h3>Download any Model, any version, and any file 📥</h3>
 
 * Get the specific model version and file you need hassle-free.
+* Download queue to avoid waiting for finished downloads.
 
 <h3>Automatically assign tags to installed models 🏷️</h3>
 
@@ -26,6 +27,7 @@
 <h3>Quick Model Info Access 📊</h3>
 
 * A button for each model card in txt2img and img2img to load it into the extension.
+* A button under each image in model info to send it's generation info to txt2img.
 
 <h3>High-speed downloads with Aria2 🚄</h3>
 
@@ -44,12 +46,7 @@
 <details>
 <summary><h1>Known Issues 🐛</h1></summary>
 
-<h3>Incompatible Extension</h3>
-
-* This extension is currently not compatible with [SignalFlagZ's CivBrowser](https://github.com/SignalFlagZ/sd-webui-civbrowser) please uninstall it if you're experiencing issues.
-
-<details>
-<summary><h3>Unable to download / Frozen download</h3></summary>
+<h3>Unable to download / Frozen download:</h3>
 
 **If you're experiencing issues with broken or frozen downloads, there are two possible solutions you can try:**
 
@@ -64,9 +61,7 @@ This will switch back to the old download method, which may resolve the issue.
 
    ![Disable Async DNS for Aria2](https://github.com/BlafKing/sd-civitai-browser-plus/assets/9644716/3cf7fab3-0df5-4995-9543-d9824b7931ff)
 
-These settings can be found under the "Settings" tab in Web-UI and then under the "Civit AI" tile.
-
-</details>
+These settings can be found under the "Settings" tab in Web-UI and then under the "CivitAI Browser+" tile.
 
 </details>
 
@@ -93,8 +88,123 @@ These settings can be found under the "Settings" tab in Web-UI and then under th
 https://github.com/BlafKing/sd-civitai-browser-plus/assets/9644716/44c5c7a0-4854-4043-bfbb-f32fa9df5a74
 
 
+# Star History 🌟
+
+<a href="https://star-history.com/#BlafKing/sd-civitai-browser-plus&Date">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=BlafKing/sd-civitai-browser-plus&type=Date&theme=dark" />
+    <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=BlafKing/sd-civitai-browser-plus&type=Date" />
+    <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=BlafKing/sd-civitai-browser-plus&type=Date" />
+  </picture>
+</a>
+
 # Changelog 📋
 
+<h3>v3.4.0</h3>
+
+* Feature: (BETA) Download queue! rearrange download order and remove models from queue
+   - Will likely contain bugs, still not completely finished.
+* Feature: Customizable sub folder insertion options, choose what sub folder options you want!
+* New setting: Toggle per prompt example image buttons
+* New setting: Insert sub folder options
+* Bug fix: Add to queue fixed, now properly gets enabled.
+* Bug fix: Symlinks now get correctly recognized and used.
+* Bug fix: No longer creates accidental sub folder when bulk downloading.
+
+---
+<h3>v3.3.1</h3>
+
+* Feature: Ability to send individual parts of image generation data to txt2img.
+* Feature: Added compatibility for [stable-diffusion-webui-forge](https://github.com/lllyasviel/stable-diffusion-webui-forge) fork.
+* New setting: Use local images in the HTML 
+   - Does not work in combination with the "Use local HTML file for model info" option!
+* New setting: Store the HTML and api_info in the custom images location
+* Bug fix: New HTML model info now scales with width so it should always fit.
+* Bug fix: Various bug fixes to the "Update model info & tags" function.
+* Bug fix: Auto save all images now uses correctly uses custom image path if set.
+* Bug fix: "Save model info" button should no longer return errors.
+* Bug fix: Old download method (non Aria2) should now work again.
+
+---
+<h3>v3.3.0</h3>
+
+* Feature: New txt2img and img2img model info overlay on CivitAI button press.
+* Feature: Base Model as sub folder option.
+* Feature: Ability to multi-download to selected folder.
+* Feature: Use the same folder as older versions when updating using multi-download.
+* Feature: txt2img and img2img CivitAI buttons can use local HTML file, toggle in settings.
+* Note: Save images no longer saves .html and API info, save model info does this instead now.
+* New setting: Save API info of model when saving model info.
+* New setting: Automatically save all images after download.
+* New setting: Use local HTML file for model info.
+* Bug fix: better JSON decode, now forces UTF-8
+* Bug fix: Now uses the proper default file when using multi-download
+* Bug fix: Hide early access models fix, now works when published_at does not exist in API.
+* Bug fix: Fix attempt for queue clearing upon download fail.
+
+---
+<h3>v3.2.5</h3>
+
+* Bug fix: Removed default API Key since it gets blocked after many downloads.
+   - Because of this it's now required for some downloads to use a personal CivitAI key, this can be set in the the settings tab of SD-WebUI under the CivitAI Browser+ tab.
+* Bug fix: Fixed bug when selecting a model from txt2img/img2img that doesn't exist on CivitAI.
+* Bug fix: Changed model selection to Model ID instead of model name
+   - This previously caused issues when 2 models were named the same.
+* Bug fix: Fixed an issue where the default file was not properly used by default.
+* Bug fix: Fixed some tiles not being selectable due to having "'" in it's title
+* Bug fix: Now automatically removes residual Aria2 files.
+
+---
+<h3>v3.2.4</h3>
+
+* Bug fix: Fix version detection for non standard SD-WebUI versions.
+* Bug fix: Retry to fetch ModelID if previously not found in update functions.
+* Bug fix: Style fix for when the Lobe theme is used in SD-WebUI
+* Bug fix: Better required packages import error catching.
+* Bug fix: Fixed CivitAI button scaling in txt2img and img2img tabs.
+* Bug fix: Added ability to handle models that have no hashes saved.
+
+---
+<h3>v3.2.3</h3>
+
+* Bug fix: Generate hash toggle in update models was inverted (silly mistake, sry bout that)
+* Bug fix: Better error detection if no model IDs were retrieved during update functions.
+* Bug fix: Better error handling if a local model does not exist on CivitAI
+
+---
+<h3>v3.2.2</h3>
+
+* Bug fix: Fixed an `api_response` issue in the update model functions
+* Bug fix: Reverted automatically retrieving base models to fix startup issues
+* Bug fix: Better error description if a model no longer exists on CivitAI
+* Bug fix: Primary file is now used as default file.
+* Bug fix: Search after updating models no longer returns errors.
+
+---
+<h3>v3.2.1</h3>
+
+* Feature: Extension now automatically retrieves latest base models from CivitAI.
+* Bug fix: Hotfix for functionality with SD.Next
+
+---
+<h3>v3.2.0</h3>
+
+* Feature: A toggle for One-Time hash generation for externally downloaded models.
+* Feature: Updated extension settings layout for SD-WebUI 1.7.0 and higher.
+* Bug fix: Set default value of Lora & LoCON combination based on SD-WebUI version.
+* Bug fix: LORA models with embedding files now get placed inside embeddings folder.
+* Bug fix: Better tile count handling to avoid issues with incorrect tile count.
+* Bug fix: Better settings saving/loading to prevent writing issues.
+
+---
+<h3>v3.1.1</h3>
+
+* Bug fix: Early Access models now get correctly hidden/detected.
+* Bug fix: Better timeout/offline server detection for options in "Update Models" tab.
+* Bug fix: Better error detection if required packages were not installed/imported.
+* Bug fix: Download button now displays as "Add to queue" during active download.
+
+---
 <h3>v3.1.0</h3>
 
 * Feature: Send to txt2img, Send any image in the model info to txt2img.
