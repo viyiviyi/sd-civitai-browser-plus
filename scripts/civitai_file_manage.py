@@ -10,10 +10,10 @@ import time
 import errno
 import requests
 import hashlib
+import base64
+from PIL import Image
 from pathlib import Path
 from urllib.parse import urlparse
-
-from sympy import preview
 from modules.shared import cmd_opts, opts
 from scripts.civitai_global import print
 import scripts.civitai_global as gl
@@ -344,7 +344,29 @@ def gen_sha256(file_path):
     
     return hash_value
 
-def model_from_sent(model_name, content_type, tile_count, path_input):
+def convert_local_images(html):
+    soup = BeautifulSoup(html)
+    for simg in soup.find_all("img", attrs={"data-sampleimg": "true"}):
+        url = urlparse(simg["src"])
+        path = url.path
+        if not os.path.exists(path):
+            print("URL path does not exist: %s" % url.path)
+            # Try the raw url, files can be saved in windows as "C:\..." and
+            # that confuses urlparse because people only really test on Linux.
+            if os.path.exists(simg["src"]):
+                path = simg["src"]
+            else:
+                continue
+        with open(path, 'rb') as f:
+            imgdata = f.read()
+        b64img = base64.b64encode(imgdata).decode('utf-8')
+        imgtype = Image.open(io.BytesIO(imgdata)).format
+        if not imgtype:
+            imgtype = "PNG"
+        simg["src"] = f"data:image/{imgtype};base64,{b64img}"
+    return str(soup)
+
+def model_from_sent(model_name, content_type, tile_count):
     modelID_failed = False
     output_html = None
     model_file = None
@@ -355,37 +377,32 @@ def model_from_sent(model_name, content_type, tile_count, path_input):
     not_found = div + "Model ID not found.<br>Maybe the model doesn\'t exist on CivitAI?</div>"
     path_not_found = div + "Model ID not found.<br>Could not locate the model path.</div>"
     offline = div + "CivitAI failed to respond.<br>The servers are likely offline."
+        
+    model_name = re.sub(r'\.\d{3}$', '', model_name)
+    content_type = re.sub(r'\.\d{3}$', '', content_type)
+    content_mapping = {
+        "txt2img_textual_inversion_cards_html": ['TextualInversion'],
+        "txt2img_hypernetworks_cards_html": ['Hypernetwork'],
+        "txt2img_checkpoints_cards_html": ['Checkpoint'],
+        "txt2img_lora_cards_html": ['LORA', 'LoCon']
+    }
+    content_type = content_mapping.get(content_type, content_type)
     
-    if local_path_in_html:
+    extensions = ['.pt', '.ckpt', '.pth', '.safetensors', '.th', '.zip', '.vae']
+
+    for content_type_item in content_type:
+        folder = _api.contenttype_folder(content_type_item)
+        for folder_path, _, files in os.walk(folder, followlinks=True):
+            for file in files:
+                if file.startswith(model_name) and file.endswith(tuple(extensions)):
+                    model_file = os.path.join(folder_path, file)
+                    
+    if not model_file:
+        output_html = path_not_found
+        print(f'Error: Could not find model path for model: "{model_name}"')
+        print(f'Content type: "{content_type}"')
+        print(f'Main folder path: "{folder}"')
         use_local_html = False
-        
-    if path_input == "Not Found":
-        model_name = re.sub(r'\.\d{3}$', '', model_name)
-        content_type = re.sub(r'\.\d{3}$', '', content_type)
-        content_mapping = {
-            "txt2img_textual_inversion_cards_html": ['TextualInversion'],
-            "txt2img_hypernetworks_cards_html": ['Hypernetwork'],
-            "txt2img_checkpoints_cards_html": ['Checkpoint'],
-            "txt2img_lora_cards_html": ['LORA', 'LoCon']
-        }
-        content_type = content_mapping.get(content_type, content_type)
-        
-        extensions = ['.pt', '.ckpt', '.pth', '.safetensors', '.th', '.zip', '.vae']
-    
-        for content_type_item in content_type:
-            folder = _api.contenttype_folder(content_type_item)
-            for folder_path, _, files in os.walk(folder, followlinks=True):
-                for file in files:
-                    if file.startswith(model_name) and file.endswith(tuple(extensions)):
-                        model_file = os.path.join(folder_path, file)
-        if not model_file:
-            output_html = path_not_found
-            print(f'Error: Could not find model path for model: "{model_name}"')
-            print(f'Content type: "{content_type}"')
-            print(f'Main folder path: "{folder}"')
-            use_local_html = False
-    else:
-        model_file = path_input
         
     if use_local_html:
         html_file = os.path.splitext(model_file)[0] + ".html"
@@ -395,6 +412,8 @@ def model_from_sent(model_name, content_type, tile_count, path_input):
                 index = output_html.find("</head>")
                 if index != -1:
                     output_html = output_html[index + len("</head>"):]
+                if local_path_in_html:
+                    output_html = convert_local_images(output_html)
     
     if not output_html:
         modelID = get_models(model_file, True)
