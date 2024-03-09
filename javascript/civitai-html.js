@@ -1,20 +1,13 @@
 "use strict";
 
 // Selects a model by pressing on card
-function select_model(model_name, event, bool = false, content_type = null, modelPath = null) {
+function select_model(model_name, event, bool = false, content_type = null) {
     if (event) {
         var className = event.target.className;
         if (className.includes('custom-checkbox') || className.includes('model-checkbox')) {
             return;
         }
     }
-
-    if (!modelPath) {
-        modelPath = "Not Found";
-    }
-    const pathInput = gradioApp().querySelector('#model_path_input textarea');
-    pathInput.value = modelPath;
-    updateInput(pathInput);
 
     const output = bool ? gradioApp().querySelector('#model_sent textarea') : gradioApp().querySelector('#model_select textarea');
 
@@ -434,17 +427,11 @@ function createCardButtons(event) {
 
                     const metaDataButton = buttonRow.querySelector('.metadata-button.card-button');
                     
-                    const copyPathButton = buttonRow.querySelector('.copy-path-button.card-button');
-                    let modelPath = "";
-                    if (copyPathButton) {
-                        modelPath = copyPathButton.getAttribute('data-clipboard-text');
-                    }
-                    
                     const newDiv = document.createElement('div');
                     newDiv.classList.add('goto-civitbrowser', 'card-button');
                     newDiv.addEventListener('click', function (event) {
                         event.stopPropagation();
-                        modelInfoPopUp(modelName, content_type, modelPath);
+                        modelInfoPopUp(modelName, content_type);
                     });
 
                     const svgIcon = document.createElementNS("http://www.w3.org/2000/svg", "svg");
@@ -479,8 +466,8 @@ function createCardButtons(event) {
 }
 document.addEventListener('click', createCardButtons);
 
-function modelInfoPopUp(modelName, content_type, modelPath) {
-    select_model(modelName, null, true, content_type, modelPath);
+function modelInfoPopUp(modelName, content_type) {
+    select_model(modelName, null, true, content_type);
 
     // Create the overlay
     var overlay = document.createElement('div');
@@ -620,14 +607,14 @@ function metaToTxt2Img(type, element) {
     let is_positive = false
     let is_negative = false
     switch(type) {
-        case 'prompt':
+        case 'Prompt':
             is_positive = true
             break;
-        case 'negativePrompt':
+        case 'Negative prompt':
             inf = 'Negative prompt: ' + inf;
             is_negative = true
             break;
-        case 'seed':
+        case 'Seed':
             inf = 'Seed: ' + inf;
             inf = inf + inf + inf;
             break;
@@ -639,19 +626,19 @@ function metaToTxt2Img(type, element) {
             inf = 'Model: ' + inf;
             inf = inf + inf + inf;
             break;
-        case 'clipSkip':
+        case 'Clip skip':
             inf = 'Clip skip: ' + inf;
             inf = inf + inf + inf;
             break;
-        case 'sampler':
+        case 'Sampler':
             inf = 'Sampler: ' + inf;
             inf = inf + inf + inf;
             break;
-        case 'steps':
+        case 'Steps':
             inf = 'Steps: ' + inf;
             inf = inf + inf + inf;
             break;
-        case 'cfgScale':
+        case 'CFG scale':
             inf = 'CFG scale: ' + inf;
             inf = inf + inf + inf;
             break;
@@ -1027,7 +1014,6 @@ function onPageLoad() {
     }
 
     observer.observe(civitaiDiv);
-    queueObserver.observe(queue_list, queueObserverOptions);
     adjustFilterBoxAndButtons();
     setupClickOutsideListener();
     createLink(infoElement);

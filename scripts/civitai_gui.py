@@ -186,7 +186,7 @@ def on_ui_tabs():
                     with gr.Row():
                         content_type = gr.Dropdown(label='Content type:', choices=content_choices, value=None, type="value", multiselect=True, elem_id="centerText")
                     with gr.Row():
-                        base_filter = gr.Dropdown(label='Base model:', multiselect=True, choices=["SD 1.4","SD 1.5","SD 1.5 LCM","SD 2.0","SD 2.0 768","SD 2.1","SD 2.1 768","SD 2.1 Unclip","SDXL 0.9","SDXL 1.0","SDXL 1.0 LCM","SDXL Distilled","SDXL Turbo","SVD","SVD XT","Playground v2","PixArt a","Other"], value=None, type="value", elem_id="centerText")
+                        base_filter = gr.Dropdown(label='Base model:', multiselect=True, choices=["SD 1.4","SD 1.5","SD 1.5 LCM","SD 2.0","SD 2.0 768","SD 2.1","SD 2.1 768","SD 2.1 Unclip","SDXL 0.9","SDXL 1.0","SDXL 1.0 LCM","SDXL Distilled","SDXL Turbo","SDXL Lightning","Stable Cascade","Pony","SVD","SVD XT","Playground v2","PixArt a","Other"], value=None, type="value", elem_id="centerText")
                     with gr.Row():
                         period_type = gr.Dropdown(label='Time period:', choices=["All Time", "Year", "Month", "Week", "Day"], value="All Time", type="value", elem_id="centerText")
                         sort_type = gr.Dropdown(label='Sort by:', choices=["Newest","Most Downloaded","Highest Rated","Most Liked", "Most Buzz","Most Discussed","Most Collected","Most Images"], value="Most Downloaded", type="value", elem_id="centerText")
@@ -305,7 +305,6 @@ def on_ui_tabs():
         selected_type_list = gr.Textbox(elem_id="selected_type_list", visible=False)
         html_cancel_input = gr.Textbox(elem_id="html_cancel_input", visible=False)
         queue_html_input = gr.Textbox(elem_id="queue_html_input", visible=False)
-        model_path_input = gr.Textbox(elem_id="model_path_input", visible=False)
         arrange_dl_id = gr.Textbox(elem_id="arrange_dl_id", visible=False)
         remove_dl_id = gr.Textbox(elem_id="remove_dl_id", visible=False)
         model_select = gr.Textbox(elem_id="model_select", visible=False)
@@ -455,7 +454,7 @@ def on_ui_tabs():
             
         model_sent.change(
             fn=_file.model_from_sent,
-            inputs=[model_sent, type_sent, tile_count_slider, model_path_input],
+            inputs=[model_sent, type_sent, tile_count_slider],
             outputs=[model_preview_html]
         )
         
@@ -1176,7 +1175,7 @@ def on_ui_settings():
             "Use local images in the HTML",
             section=browser,
             **({'category_id': cat_id} if ver_bool else {})
-        ).info("Does not work in combination with the \"Use local HTML file for model info\" option!")
+        ).info("Only works if all images of the corresponding model are downloaded")
     )
     
     shared.opts.add_option(
