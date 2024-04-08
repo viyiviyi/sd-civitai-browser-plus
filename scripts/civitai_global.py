@@ -1,5 +1,11 @@
+from modules.shared import opts
+do_debug_print = getattr(opts, "civitai_debug_prints", False)
 def init():
-    global download_queue, last_version, cancel_status, recent_model, json_data, json_info, main_folder, previous_inputs, download_fail, sortNewest, isDownloading, old_download, scan_files, ver_json, file_scan, url_list_with_numbers, print
+    import warnings
+    from urllib3.exceptions import InsecureRequestWarning
+    warnings.simplefilter('ignore', InsecureRequestWarning)
+    
+    global download_queue, last_version, cancel_status, recent_model, last_url, json_data, json_info, main_folder, previous_inputs, download_fail, sortNewest, isDownloading, old_download, scan_files, from_update_tab, url_list, print
     
     cancel_status = None
     recent_model = None
@@ -8,11 +14,10 @@ def init():
     main_folder = None
     previous_inputs = None
     last_version = None
-    ver_json = None
-    url_list_with_numbers = None
+    url_list = {}
     download_queue = []
     
-    file_scan = False
+    from_update_tab = False
     scan_files = False
     download_fail = False
     sortNewest = False
@@ -22,3 +27,7 @@ def init():
 _print = print
 def print(print_message):
     _print(f'\033[96mCivitAI Browser+\033[0m: {print_message}')
+    
+def debug_print(print_message):
+    if do_debug_print:
+        _print(f'\033[96m[DEBUG] CivitAI Browser+\033[0m: {print_message}')

@@ -1,7 +1,7 @@
 "use strict";
 
 // Selects a model by pressing on card
-function select_model(model_name, event, bool = false, content_type = null) {
+function select_model(model_name, event, bool = false, content_type = null, sendToBrowser = false) {
     if (event) {
         var className = event.target.className;
         if (className.includes('custom-checkbox') || className.includes('model-checkbox')) {
@@ -9,7 +9,12 @@ function select_model(model_name, event, bool = false, content_type = null) {
         }
     }
 
-    const output = bool ? gradioApp().querySelector('#model_sent textarea') : gradioApp().querySelector('#model_select textarea');
+    let output;
+    if (sendToBrowser) {
+        output = gradioApp().querySelector('#send_to_browser textarea')
+    } else {
+        output = bool ? gradioApp().querySelector('#model_sent textarea') : gradioApp().querySelector('#model_select textarea');
+    }
 
     if (output && model_name) {
         const randomNumber = Math.floor(Math.random() * 1000);
@@ -27,6 +32,19 @@ function select_model(model_name, event, bool = false, content_type = null) {
     }
 }
 
+// Clicks the first item in the browser cards list
+function clickFirstFigureInColumn() {
+    setTimeout(() => {
+        const columnDiv = document.querySelector('.column.civmodellist');
+        if (columnDiv) {
+            const firstFigure = columnDiv.querySelector('figure');
+            if (firstFigure) {
+                firstFigure.click();
+            }
+        }
+    }, 500);
+}
+
 // Changes the card size
 function updateCardSize(width, height) {
     var styleSheet = document.styleSheets[0];
@@ -42,20 +60,22 @@ function updateCardSize(width, height) {
 
 // Toggles NSFW display
 function toggleNSFWContent(hideAndBlur) {
-    const sheet = document.styleSheets[0];
+    const nsfwCards = document.querySelectorAll('.civcardnsfw');
+    nsfwCards.forEach(card => {
+        card.style.display = hideAndBlur ? 'block' : 'none';
+    })
 
-    const toggleRule = (selector, rules) => addOrUpdateRule(sheet, selector, rules);
-
-    toggleRule('.civcardnsfw', hideAndBlur ? 'display: block;' : 'display: none;');
-    toggleRule('.civnsfw img', hideAndBlur ? 'filter: none;' : 'filter: blur(10px);');
+    const nsfwImages = document.querySelectorAll('.civnsfw img');
+    nsfwImages.forEach(img => {
+        img.style.filter = hideAndBlur ? 'none' : 'blur(10px)';
+    });
 
     const dateSections = document.querySelectorAll('.date-section');
-    dateSections.forEach((section) => {
+    dateSections.forEach(section => {
         const cards = section.querySelectorAll('.civmodelcard');
         const nsfwCards = section.querySelectorAll('.civmodelcard.civcardnsfw');
         section.style.display = !hideAndBlur && cards.length === nsfwCards.length ? 'none' : 'block';
     });
-
 }
 
 // Updates site with css insertions
@@ -102,7 +122,7 @@ function updateCard(modelNameWithSuffix) {
 }
 
 // Enables refresh with alt+enter and ctrl+enter
-document.addEventListener('keydown', function(e) {
+function keydownHandler(e) {
     var handled = false;
 
     if (e.key !== undefined) {
@@ -126,7 +146,8 @@ document.addEventListener('keydown', function(e) {
             e.preventDefault();
         }
     }
-});
+}
+document.addEventListener('keydown', keydownHandler);
 
 // Function for the back to top button
 function BackToTop() {
@@ -204,26 +225,30 @@ function pressRefresh() {
     setTimeout(() => {
         const input = document.querySelector("#pageSlider > div:nth-child(2) > div > input");
         if (document.activeElement === input) {
-            input.addEventListener('keydown', function(event) {
+            function keydownHandler(event) {
                 if (event.key === 'Enter' || event.keyCode === 13) {
                     input.blur();
+                    input.removeEventListener('keydown', keydownHandler);
+                    input.removeEventListener('blur', blurHandler);
                 }
-            });
-            input.addEventListener('blur', function() {
-                return;
-            });
+            }
+
+            function blurHandler() {
+                input.removeEventListener('keydown', keydownHandler);
+                input.removeEventListener('blur', blurHandler);
+            }
+
+            input.addEventListener('keydown', keydownHandler);
+            input.addEventListener('blur', blurHandler);
 
             return;
         }
-
-        let button = document.querySelector("#refreshBtn");
-        if (!button) {
-            button = document.querySelector("#refreshBtnL");
-        }
-        if (button) {
-            button.click();
-        } else {
-            console.error("Both buttons with IDs #refreshBtn and #refreshBtnL not found.");
+        let output = gradioApp().querySelector('#page_slider_trigger textarea');
+        if (output) {
+            const randomNumber = Math.floor(Math.random() * 1000);
+            const paddedNumber = String(randomNumber).padStart(3, '0');
+            output.value = paddedNumber;
+            updateInput(output);
         }
     }, 200);
 }
@@ -233,6 +258,10 @@ function updateSVGIcons() {
     const isDark = document.body.classList.contains('dark');
     const filterIconUrl = isDark ? "https://gistcdn.githack.com/BlafKing/a20124cedafad23d4eecc1367ec22896/raw/04a4dae0771353377747dadf57c91d55bf841bed/filter-light.svg" : "https://gistcdn.githack.com/BlafKing/686c3438f5d0d13e7e47135f25445ef3/raw/46477777faac7209d001829a171462d9a2ff1467/filter-dark.svg";
     const searchIconUrl = isDark ? "https://gistcdn.githack.com/BlafKing/3f95619089bac3b4fd5470a986e1b3bb/raw/ebaa9cceee3436711eb560a7a65e151f1d651c6a/search-light.svg" : "https://gistcdn.githack.com/BlafKing/57573592d5857e102a4bfde852f62639/raw/aa213e9e82d705651603507e26545eb0ffe60c90/search-dark.svg";
+
+    if (isDark) {
+        
+    }
 
     const element = document.querySelector("#filterBox, #filterBoxL");
     const childDiv = element?.querySelector("div:nth-child(3)");
@@ -328,31 +357,14 @@ function updateBackToTopVisibility(entries) {
     }
 }
 
-// Options for the Intersection Observer
-var options = {
-    root: null,
-    rootMargin: '0px 0px -60px 0px',
-    threshold: 0
-};
-
-// Create an Intersection Observer instance
-const observer = new IntersectionObserver(updateBackToTopVisibility, options);
-
-function handleCivitaiDivChanges() {
-    var civitaiDiv = document.getElementById('civitai_preview_html');
-    observer.unobserve(civitaiDiv);
-    observer.observe(civitaiDiv);
-}
-
-document.addEventListener("scroll", handleCivitaiDivChanges)
-
 // Create the accordion dropdown inside the settings tab
-function createAccordion(containerDiv, subfolders, name) {
+function createAccordion(containerDiv, subfolders, name, id_name) {
     if (containerDiv == null || subfolders.length == 0) {
         return;
     }
     var accordionContainer = document.createElement('div'); 
-    accordionContainer.id = 'settings-accordion';
+    accordionContainer.id = id_name;
+    accordionContainer.className = 'settings-accordion';
     var toggleButton = document.createElement('button');
     toggleButton.id = 'accordionToggle';
     toggleButton.innerHTML = name + '<div style="transition: transform 0.15s; transform: rotate(90deg)">▼</div>';
@@ -371,172 +383,190 @@ function createAccordion(containerDiv, subfolders, name) {
 }
 
 // Adds a button to the cards in txt2img and img2img
-function createCardButtons(event) {
-    const clickedElement = event.target;
-    const validButtonNames = ['Textual Inversion', 'Hypernetworks', 'Checkpoints', 'Lora'];
-    const validParentIds = ['txt2img_textual_inversion_cards_html', 'txt2img_hypernetworks_cards_html', 'txt2img_checkpoints_cards_html', 'txt2img_lora_cards_html'];
+function createCivitAICardButtons() {
+    const copyButton = document.querySelector('.copy-path-button');
+    let fontSize = '1.8rem';
+    if (!copyButton) {
+        const editButton = document.querySelector('.edit-button');
+        if (editButton) {
+            const originalDisplay = editButton.parentElement.style.display;
+            editButton.parentElement.style.display = 'flex';
+            const editButtonBeforeStyle = window.getComputedStyle(editButton, ':before');
+            fontSize = editButtonBeforeStyle.getPropertyValue('font-size');
+            editButton.parentElement.style.display = originalDisplay;
+        }
+    }
 
-    const hasMatchingButtonName = clickedElement && clickedElement.innerText && validButtonNames.some(buttonName =>
-        clickedElement.innerText.trim() === buttonName
-    );
+    const checkForCardDivs = setInterval(() => {
+        const cardDivs = document.querySelectorAll('.card');
+        if (cardDivs.length > 0) {
+            clearInterval(checkForCardDivs);
+            
+            cardDivs.forEach(cardDiv => {
+                const buttonRow = cardDiv.querySelector('.button-row');
+                if (!buttonRow) return;
+                
+                buttonRow.addEventListener('click', function(event) {
+                    event.stopPropagation();
+                });
+                
+                if (!buttonRow.querySelector('.goto-civitbrowser.card-button')) {
+                    const modelName = cardDiv.querySelector('.actions .name')?.textContent.trim();
+                    if (!modelName) return;
 
-    const flexboxDivs = document.querySelectorAll('.layoutkit-flexbox');
-    let isLobeTheme = false;
-    flexboxDivs.forEach(div => {
-        const anchorElements = div.querySelectorAll('a');
-        const hasGitHubLink = Array.from(anchorElements).some(anchor => anchor.href === 'https://github.com/lobehub/sd-webui-lobe-theme/releases');
-        if (hasGitHubLink) {
-            isLobeTheme = true;
+                    const newDiv = document.createElement('div');
+                    newDiv.className = 'goto-civitbrowser card-button';
+                    const svgIcon = createSVGIcon(fontSize);
+                    newDiv.appendChild(svgIcon);
+
+                    newDiv.onclick = () => modelInfoPopUp(modelName, cardDiv.parentElement.id);
+                    buttonRow.insertBefore(newDiv, buttonRow.firstChild);
+                }
+            });
+        }
+    }, 200);
+
+    setTimeout(() => {
+        clearInterval(checkForCardDivs);
+    }, 5000);
+}
+
+function createSVGIcon(fontSize) {
+    const svgIcon = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svgIcon.setAttribute('width', fontSize);
+    svgIcon.setAttribute('height', fontSize);
+    svgIcon.setAttribute('viewBox', '75 85 350 350');
+    svgIcon.setAttribute('fill', 'white');
+    if (fontSize == "1.8rem") {
+        svgIcon.setAttribute('style', 'margin-top: -2px');
+    }
+    svgIcon.innerHTML = `
+        <path d="M 352.79 218.85 L 319.617 162.309 L 203.704 162.479 L 146.28 259.066 L 203.434 355.786 L 319.373 355.729 L 352.773 299.386 L 411.969 299.471 L 348.861 404.911 L 174.065 404.978 L 87.368 259.217 L 174.013 113.246 L 349.147 113.19 L 411.852 218.782 L 352.79 218.85 Z"/>
+        <path d="M 304.771 334.364 L 213.9 334.429 L 169.607 259.146 L 214.095 183.864 L 305.132 183.907 L 330.489 227.825 L 311.786 259.115 L 330.315 290.655 Z M 278.045 290.682 L 259.294 259.18 L 278.106 227.488 L 240.603 227.366 L 221.983 259.128 L 240.451 291.026 Z"/>
+    `;
+
+    return svgIcon;
+}
+
+function addOnClickToButtons() {
+    const tabs = ['img2img_extra_tabs', 'txt2img_extra_tabs'].map(id => document.getElementById(id));
+    const buttonIds = [
+        'txt2img_checkpoints_extra_refresh',
+        'img2img_checkpoints_extra_refresh',
+        'txt2img_extra_refresh',
+        'img2img_extra_refresh',
+    ];
+
+    buttonIds.forEach(buttonId => {
+        let button = document.getElementById(buttonId);
+        if (button) {
+            button.addEventListener('click', (event) => {
+                createCivitAICardButtons(button);
+            });
         }
     });
 
-    if (hasMatchingButtonName || isLobeTheme) {
-        const checkForCardDivs = setInterval(() => {
-            const cardDivs = document.querySelectorAll('.card');
-
-            if (cardDivs.length > 0) {
-                clearInterval(checkForCardDivs);
-                
-                const cardScale = document.querySelector('#setting_extra_networks_card_text_scale > div > div > input').valueAsNumber * 100;
-                const viewBoxHeight = (cardScale < 100) ? (100 - cardScale) * 2 : -(cardScale - 100) * 2;
-
-                cardDivs.forEach(cardDiv => {
-                    const buttonRow = cardDiv.querySelector('.button-row');
-                    const actions = cardDiv.querySelector('.actions');
-                    if (!actions) {
-                        return;
-                    }
-                    const nameSpan = actions.querySelector('.name');
-                    let modelName  = nameSpan.textContent.trim();
-                    let currentElement = cardDiv.parentElement;
-                    let content_type = null;
-
-                    while (currentElement) {
-                        const parentId = currentElement.id;
-                        if (validParentIds.includes(parentId)) {
-                            content_type = parentId;
-                            break;
-                        }
-                        currentElement = currentElement.parentElement;
-                    }
-
-                    const existingDiv = buttonRow.querySelector('.goto-civitbrowser.card-button');
-                    if (existingDiv) {
-                        return;
-                    }
-
-                    const metaDataButton = buttonRow.querySelector('.metadata-button.card-button');
-                    
-                    const newDiv = document.createElement('div');
-                    newDiv.classList.add('goto-civitbrowser', 'card-button');
-                    newDiv.addEventListener('click', function (event) {
-                        event.stopPropagation();
-                        modelInfoPopUp(modelName, content_type);
-                    });
-
-                    const svgIcon = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-                    if (isLobeTheme) {
-                        svgIcon.setAttribute('width', '25');
-                        svgIcon.setAttribute('height', '25');
-                    } else {
-                        if (metaDataButton) {
-                            metaDataButton.style.paddingTop = '5px';
-                            metaDataButton.style.width = '42px';
-                            metaDataButton.style.fontSize = '230%';
-                        }
-                        svgIcon.setAttribute('width', '40');
-                        svgIcon.setAttribute('height', '40');
-                        newDiv.setAttribute('style', 'width: 42px !important;');
-                    }
-                    svgIcon.setAttribute('viewBox', `75 ${viewBoxHeight} 500 500`);
-                    svgIcon.setAttribute('fill', 'white');
-                    svgIcon.setAttribute('style', `scale: ${cardScale}%;`);
-
-                    svgIcon.innerHTML = `
-                        <path d="M 352.79 218.85 L 319.617 162.309 L 203.704 162.479 L 146.28 259.066 L 203.434 355.786 L 319.373 355.729 L 352.773 299.386 L 411.969 299.471 L 348.861 404.911 L 174.065 404.978 L 87.368 259.217 L 174.013 113.246 L 349.147 113.19 L 411.852 218.782 L 352.79 218.85 Z"/>
-                        <path d="M 304.771 334.364 L 213.9 334.429 L 169.607 259.146 L 214.095 183.864 L 305.132 183.907 L 330.489 227.825 L 311.786 259.115 L 330.315 290.655 Z M 278.045 290.682 L 259.294 259.18 L 278.106 227.488 L 240.603 227.366 L 221.983 259.128 L 240.451 291.026 Z"/>
-                    `;
-
-                    newDiv.appendChild(svgIcon);
-                    buttonRow.insertBefore(newDiv, buttonRow.firstChild);
+    tabs.forEach(tab => {
+        if (tab) {
+            const buttons = tab.querySelectorAll('div > button:not(:first-child)');
+            buttons.forEach(button => {
+                button.addEventListener('click', (event) => {
+                    createCivitAICardButtons(button);
                 });
-            }
-        }, 100);
-    }
+            });
+        }
+    });
 }
-document.addEventListener('click', createCardButtons);
 
 function modelInfoPopUp(modelName, content_type) {
-    select_model(modelName, null, true, content_type);
+    const sendToBrowserElement = gradioApp().querySelector('#setting_civitai_send_to_browser input');
+    let sendToBrowser = false;
+    if (sendToBrowserElement) {
+        sendToBrowser = sendToBrowserElement.checked;
+    }
 
-    // Create the overlay
-    var overlay = document.createElement('div');
-    overlay.classList.add('civitai-overlay');
-    overlay.style.position = 'fixed';
-    overlay.style.top = '0';
-    overlay.style.left = '0';
-    overlay.style.width = '100%';
-    overlay.style.height = '100%';
-    overlay.style.backgroundColor = 'rgba(20, 20, 20, 0.95)';
-    overlay.style.zIndex = '1001';
-    overlay.style.overflowY = 'auto';
-
-    // Create the close button
-    var closeButton = document.createElement('div');
-    closeButton.classList.add('civitai-overlay-close');
-    closeButton.textContent = '×';
-    closeButton.style.zIndex = '1011';
-    closeButton.style.position = 'fixed';
-    closeButton.style.right = '22px';
-    closeButton.style.top = '0';
-    closeButton.style.cursor = 'pointer';
-    closeButton.style.color = 'white';
-    closeButton.style.fontSize = '32pt';
-    closeButton.addEventListener('click', hidePopup);
-    document.addEventListener('keydown', handleKeyPress);
-
-    // Create the pop-up window
-    var inner = document.createElement('div');
-    inner.classList.add('civitai-overlay-inner');
-    inner.style.position = 'absolute';
-    inner.style.top = '50%';
-    inner.style.left = '50%';
-    inner.style.width = 'auto';
-    inner.style.transform = 'translate(-50%, -50%)';
-    inner.style.background = 'var(--body-background-fill)';
-    inner.style.padding = '2em';
-    inner.style.borderRadius = 'var(--block-radius)';
-    inner.style.borderStyle = 'solid';
-    inner.style.borderWidth = 'var(--block-border-width)';
-    inner.style.borderColor = 'var(--block-border-color)';
-    inner.style.zIndex = '1001';
-
-    // Placeholder model content until model is loaded by other function
-    var modelInfo = document.createElement('div');
-    modelInfo.classList.add('civitai-overlay-text');
-    modelInfo.textContent = 'Loading model info, please wait!';
-    modelInfo.style.fontSize = '24px';
-    modelInfo.style.color = 'white';
-    modelInfo.style.fontFamily = 'var(--font)';
-
-    document.body.style.overflow = 'hidden';
-    document.body.appendChild(overlay);
-    overlay.appendChild(closeButton);
-    overlay.appendChild(inner);
-    inner.appendChild(modelInfo);
-
-    overlay.addEventListener('click', function (event) {
-        if (event.target === overlay) {
-            hidePopup();
+    select_model(modelName, null, true, content_type, sendToBrowser);
+    if (sendToBrowser) {
+        const tabNav = document.querySelector('.tab-nav');
+        const buttons = tabNav.querySelectorAll('button');
+        for (const button of buttons) {
+            if (button.textContent.includes('Browser+')) {
+                button.click();
+                
+                const firstButton = document.querySelector('#tab_civitai_interface > div > div > div > button');
+                if (firstButton) {
+                    firstButton.click();
+                }
+            }
         }
-    });
+    } else {
+        const createElementWithStyle = (tag, styles = {}) => {
+            const el = document.createElement(tag);
+            Object.assign(el.style, styles);
+            return el;
+        };
 
-    setDynamicWidth(inner);
+        const overlay = createElementWithStyle('div', {
+            position: 'fixed',
+            top: '0',
+            left: '0',
+            width: '100%',
+            height: '100%',
+            backgroundColor: 'rgba(20, 20, 20, 0.95)',
+            zIndex: '1001',
+            overflowY: 'auto'
+        });
+        overlay.classList.add('civitai-overlay');
+        overlay.addEventListener('keydown', handleKeyPress);
+        overlay.addEventListener('click', event => {
+            if (event.target === overlay) hidePopup();
+        });
 
-    // Update width on window resize
-    window.addEventListener('resize', function() {
+        const closeButton = createElementWithStyle('div', {
+            zIndex: '1011',
+            position: 'fixed',
+            right: '22px',
+            top: '0',
+            cursor: 'pointer',
+            color: 'white',
+            fontSize: '32pt'
+        });
+        closeButton.classList.add('civitai-overlay-close');
+        closeButton.textContent = '×';
+        closeButton.addEventListener('click', hidePopup);
+
+        const inner = createElementWithStyle('div', {
+            position: 'absolute',
+            top: '50%',
+            left: '50%',
+            width: 'auto',
+            transform: 'translate(-50%, -50%)',
+            background: 'var(--neutral-950)',
+            padding: '2em',
+            borderRadius: 'var(--block-radius)',
+            borderStyle: 'solid',
+            borderWidth: 'var(--block-border-width)',
+            borderColor: 'var(--block-border-color)',
+            zIndex: '1001'
+        });
+        inner.classList.add('civitai-overlay-inner');
+
+        const modelInfo = createElementWithStyle('div', {
+            fontSize: '24px',
+            color: 'white',
+            fontFamily: 'var(--font)'
+        });
+        modelInfo.classList.add('civitai-overlay-text');
+        modelInfo.textContent = 'Loading model info, please wait!';
+
+        document.body.style.overflow = 'hidden';
+        document.body.appendChild(overlay);
+        overlay.append(closeButton, inner);
+        inner.appendChild(modelInfo);
+
         setDynamicWidth(inner);
-    });
+        window.addEventListener('resize', () => setDynamicWidth(inner));
+    }
 }
 
 function setDynamicWidth(inner) {
@@ -587,6 +617,8 @@ function inputHTMLPreviewContent(html_input) {
             }
             modelInfo.innerHTML = extractedText;
             inner.appendChild(modelInfo);
+
+            setDescriptionToggle();
         }
     }
 }
@@ -693,64 +725,6 @@ function multi_model_select(modelName, modelType, isChecked) {
     
     updateInput(selected_model_list);
     updateInput(selected_type_list);
-}
-
-// Metadata button click detector
-document.addEventListener('click', function(event) {
-    var target = event.target;
-    if (target.classList.contains('edit-button') && target.classList.contains('card-button')) {
-        var parentDiv = target.parentElement;
-        var actionsDiv = parentDiv.nextElementSibling;
-        if (actionsDiv && actionsDiv.classList.contains('actions')) {
-            var nameSpan = actionsDiv.querySelector('.name');
-            if (nameSpan) {
-                var nameValue = nameSpan.textContent;
-                onEditButtonCardClick(nameValue);
-            }
-        }
-    }
-}, true);
-
-// CivitAI Link Button Creation
-function onEditButtonCardClick(nameValue) {
-    var checkInterval = setInterval(function() {
-        var globalPopupInner = document.querySelector('.global-popup-inner');
-        var titleElement = globalPopupInner.querySelector('.extra-network-name');
-        if (titleElement.textContent.trim() === nameValue.trim()) {
-            var descriptionSpan = Array.from(globalPopupInner.querySelectorAll('span')).find(span => span.textContent.trim() === "Description");
-            if (descriptionSpan) {
-                var descriptionTextarea = descriptionSpan.nextElementSibling;
-                if (descriptionTextarea.value.startsWith('Model URL:')) {
-                    var matches = descriptionTextarea.value.match(/"([^"]+)"/);
-                    if (matches && matches[1]) {
-                        var modelUrl = matches[1];
-
-                        var grandParentDiv = descriptionTextarea.parentElement.parentElement.parentElement.parentElement;
-                        var imageDiv = grandParentDiv.nextElementSibling
-                        var openInCivitaiDiv = document.querySelector('.open-in-civitai');
-                        if (!openInCivitaiDiv) {
-                            openInCivitaiDiv = document.createElement('div');
-                            openInCivitaiDiv.classList.add('open-in-civitai');
-                            imageDiv.appendChild(openInCivitaiDiv);
-                        }
-                        openInCivitaiDiv.innerHTML = '<a href="' + modelUrl + '" target="_blank" onclick="window.open(this.href, \'_blank\'); return false;">Open on CivitAI</a>';
-                    }
-                    else {
-                        var openInCivitaiDiv = document.querySelector('.open-in-civitai');
-                        if (openInCivitaiDiv) {
-                            openInCivitaiDiv.remove();
-                        }
-                    }
-                } else {
-                    var openInCivitaiDiv = document.querySelector('.open-in-civitai');
-                    if (openInCivitaiDiv) {
-                        openInCivitaiDiv.remove();
-                    }
-                }
-            }
-            clearInterval(checkInterval);
-        }
-    }, 100);
 }
 
 function sendClick(location) {
@@ -961,64 +935,81 @@ function hideInstalled(toggleValue) {
     });
 }
 
-// Runs all functions when the page is fully loaded
-function onPageLoad() {
-    const divElement = document.getElementById('setting_custom_api_key');
-    let civitaiDiv = document.getElementById('civitai_preview_html');
-    let queue_list = document.querySelector("#queue_list");
-    const infoElement = divElement?.querySelector('.info');
-    if (!infoElement) {
-        return;
+function setDescriptionToggle() {
+    const popUp = document.querySelector(".civitai-overlay-inner");
+    let toggleButton = null;
+    let descriptionDiv = null;
+
+    if (popUp) {
+        descriptionDiv = popUp.querySelector(".model-description");
+        toggleButton = popUp.querySelector(".description-toggle-label");
+    } else {
+        descriptionDiv = document.querySelector(".model-description");
+        toggleButton = document.querySelector(".description-toggle-label");
     }
 
-    clearInterval(intervalID);
+    if (descriptionDiv && descriptionDiv.scrollHeight <= 400) {
+        toggleButton.style.visibility = "hidden";
+        toggleButton.style.height = "0";
+        descriptionDiv.style.position = "unset";
+    }
+}
+
+// Runs all functions when the page is fully loaded
+function onPageLoad() {
     updateSVGIcons();
 
     let subfolderDiv = document.querySelector("#settings_civitai_browser_plus > div > div");
     let downloadDiv = document.querySelector("#settings_civitai_browser_download > div > div");
+    let settingsDiv = document.querySelector("#settings_civitai_browser > div > div");
+
     if (subfolderDiv || downloadDiv) {
         let div = subfolderDiv || downloadDiv;
         let subfolders = div.querySelectorAll("[id$='subfolder']");
-        createAccordion(div, subfolders, "Default sub folders");
+        createAccordion(div, subfolders, "Default sub folders", 'default-sub-accordion');
+
+        subfolders = div.querySelectorAll("[id^='setting_insert_sub']");
+        createAccordion(div, subfolders, "Insert sub folder options", 'insert-sub-accordion');
     }
 
-    let upscalerDiv = document.querySelector("#settings_civitai_browser_plus > div > div > #settings-accordion > div");
-    let downloadDivSub = document.querySelector("#settings_civitai_browser_download > div > div > #settings-accordion > div");
-    if (upscalerDiv || downloadDivSub) {
-        let div = upscalerDiv || downloadDivSub;
-        let upscalers = div.querySelectorAll("[id$='upscale_subfolder']");
-        createAccordion(div, upscalers, "Upscalers");
-    }
-
-    let settingsDiv = document.querySelector("#settings_civitai_browser > div > div");
     if (subfolderDiv || settingsDiv) {
         let div = subfolderDiv || settingsDiv;
-        let subfolders = div.querySelectorAll("[id^='setting_insert_sub']");
-        createAccordion(div, subfolders, "Insert sub folder options");
+        let proxy = div.querySelectorAll("[id$='proxy']");
+        createAccordion(div, proxy, "Proxy options", 'proxy-accordion');
     }
 
-    
     let toggle4L = document.getElementById('toggle4L');
     let toggle4 = document.getElementById('toggle4');
+    let hash_toggle_hover = document.querySelector('#skip_hash_toggle > label');
+    let hash_toggle = document.querySelector('#skip_hash_toggle');
+
     if (toggle4L || toggle4) {
         let like_toggle = toggle4L || toggle4;
         let insertText = 'Requires an API Key\nConfigurable in CivitAI settings tab';
         createTooltip(like_toggle, like_toggle, insertText);
     }
 
-    let hash_toggle_hover = document.querySelector('#skip_hash_toggle > label');
-    let hash_toggle = document.querySelector('#skip_hash_toggle');
     if (hash_toggle) {
         let insertText = 'This option generates unique hashes for models that were not downloaded with this extension.\nA hash is required for any of the options below to work, a model with no hash will be skipped.\nInitial hash generation is a one-time process per file.';
         createTooltip(hash_toggle, hash_toggle_hover, insertText);
     }
 
-    observer.observe(civitaiDiv);
+    addOnClickToButtons();
+    createCivitAICardButtons();
     adjustFilterBoxAndButtons();
     setupClickOutsideListener();
-    createLink(infoElement);
     updateBackToTopVisibility([{isIntersecting: false}]);
 }
 
-// Checks every second if the page is fully loaded
-let intervalID = setInterval(onPageLoad, 1000);
+onUiLoaded(onPageLoad);
+
+function checkSettingsLoad() {
+    const divElement = gradioApp().querySelector('#setting_custom_api_key');
+    const infoElement = divElement?.querySelector('.info');
+    if (!infoElement) {
+        return;
+    }
+    clearInterval(settingsLoadInterval);
+    createLink(infoElement);
+}
+let settingsLoadInterval = setInterval(checkSettingsLoad, 1000);

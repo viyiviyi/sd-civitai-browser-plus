@@ -100,12 +100,63 @@ https://github.com/BlafKing/sd-civitai-browser-plus/assets/9644716/44c5c7a0-4854
 
 # Changelog 📋
 
+<h3>v3.5.4</h3>
+
+* Feature: Added support for DoRA (Requires SD-WebUI v1.9)
+* Bug fix: No longer rescans models that were previously not found on CivitAI
+* Bug fix: Fixed placement of HTML & api_info files when custom images location was used.
+* Bug fix: Fixed incorrect json naming.
+
+---
+<h3>v3.5.3</h3>
+
+* New Setting: Send model from the cards CivitAI button to the browser, instead of showing a popup.
+* Bug fix: No longer fetch HTML info when the file already exists and overwrite is off. 
+* Bug fix: Fix NSFW models update functions.
+* Bug fix: Fixed CivitAI button on NSFW model cards.
+
+---
+<h3>v3.5.2</h3>
+
+* Bug fix: NSFW filtering fixed.
+
+---
+<h3>v3.5.1</h3>
+
+* Temp fix: Quick fix for the new NSFW system.
+   - NSFW models may be returned when NSFW is disabled, this is an issue with the public CivitAI API.
+   - Search results currently do not get influenced by the NSFW setting, also an issue with the API.
+* Bug fix: Better automatic coloring for white theme.
+
+---
+<h3>v3.5.0</h3>
+
+* Bug fix: Extension now works again with the latest CivitAI API version!
+* Cleanup: Re-wrote backend API handling code.
+
+---
+<h3>v3.4.3</h3>
+
+* Bug fix: Hotfix for a change in the public API which broke searching.
+* Bug fix: Fixed incorrect permission display on model page.
+
+---
+<h3>v3.4.2</h3>
+
+* Feature: Ability to set-up a custom proxy for API requests and downloads.
+* Feature: Use image API for prompt info, should speed up loading.
+* Feature: Optimized javascript code, improved webpage speed for some users.
+* New setting: Proxy settings to set-up custom proxy.
+* New setting: Toggle for saving description to model json file. (this displays description on the cards)
+* Bug fix: Broken default sub folder option fixed [#217](https://github.com/BlafKing/sd-civitai-browser-plus/issues/217)
+
+---
 <h3>v3.4.1</h3>
 
-* Bug fix: Fixed prompt info and model selection after CivitAI API update.
-* Bug fix: Fixed "/" missing from default path/sub-folder.
 * Feature: Local images now work in HTML files as preview. (credit: [mx](https://github.com/mx))
 * Feature: Updated available base models.
+* Bug fix: Fixed prompt info and model selection after CivitAI API update.
+* Bug fix: Fixed "/" missing from default path/sub-folder.
 
 ---
 <h3>v3.4.0</h3>
